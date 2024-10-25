@@ -5,8 +5,12 @@ jest.mock('@actions/core', () => ({
   setOutput: jest.fn(),
   setFailed: jest.fn(),
   debug: jest.fn(),
+  info: jest.fn(), // 追加
+  warning: jest.fn(), // 追加
+  error: jest.fn(), // 追加
   summary: {
     addRaw: jest.fn().mockReturnThis(),
+    addHeading: jest.fn().mockReturnThis(), // 追加
     write: async () => Promise.resolve()
   }
 }))

@@ -25800,20 +25800,45 @@ function isTestResult(value) {
 async function run() {
     try {
         const xcresultPath = core.getInput('xcresult-path');
+        core.info(`📦 Processing xcresult at: ${xcresultPath}`);
         if (!fs.existsSync(xcresultPath)) {
             throw new Error(`xcresult file not found at path: ${xcresultPath}`);
         }
+        core.info('🔍 Analyzing xcresult...');
         const { buildResult, testResult } = await getXcresultSummary(xcresultPath);
+        core.info(`📊 Build Status: ${buildResult.status}`);
+        core.info(`✅ Passed Tests: ${testResult.passedTests}`);
+        core.info(`❌ Failed Tests: ${testResult.failedTests}`);
+        if (buildResult.errorCount > 0) {
+            core.warning(`Found ${buildResult.errorCount} build errors`);
+        }
+        if (testResult.failedTests > 0) {
+            core.warning(`Found ${testResult.failedTests} test failures`);
+        }
         const markdownSummary = generateMarkdownSummary(buildResult, testResult);
-        core.setOutput('summary', markdownSummary);
+        // 出力を設定
         core.setOutput('total-tests', testResult.totalTestCount);
         core.setOutput('failed-tests', testResult.failedTests);
         core.setOutput('passed-tests', testResult.passedTests);
-        await core.summary.addRaw(markdownSummary).write();
+        core.setOutput('build-status', buildResult.status);
+        core.setOutput('error-count', buildResult.errorCount);
+        core.setOutput('warning-count', buildResult.warningCount);
+        // Summaryを作成
+        await core.summary
+            .addHeading('XCResult Summary')
+            .addRaw(markdownSummary)
+            .write();
+        core.info('✨ Summary generated successfully');
     }
     catch (error) {
-        if (error instanceof Error)
+        if (error instanceof Error) {
+            core.error(`❌ Error: ${error.message}`);
+            await core.summary
+                .addHeading('Error')
+                .addRaw(`❌ ${error.message}`)
+                .write();
             core.setFailed(error.message);
+        }
     }
 }
 

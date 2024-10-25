@@ -41,27 +41,27 @@ on:
 jobs:
   test:
     runs-on: macos-latest
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Select Xcode
       uses: maxim-lobanov/setup-xcode@v1
       with:
         xcode-version: latest-stable
-    
+
     - name: Build and Test
       run: |
         xcodebuild test \
           -scheme YourScheme \
           -destination 'platform=iOS Simulator,name=iPhone 15' \
           -resultBundlePath build/reports/tests.xcresult
-    
+
     - name: Generate Test Summary
       uses: YourUsername/xcresult-summary@v1
       with:
         xcresult-path: build/reports/tests.xcresult
-    
+
     - name: Check Test Results
       if: always()
       run: |
@@ -100,3 +100,4 @@ Passed: 8
 Failed: 2
 Skipped: 0
 Configuration: Test Scheme Action
+```
