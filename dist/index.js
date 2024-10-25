@@ -25626,6 +25626,31 @@ module.exports = {
 
 /***/ }),
 
+/***/ 9407:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __exportStar = (this && this.__exportStar) || function(m, exports) {
+    for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+__exportStar(__nccwpck_require__(1730), exports);
+
+
+/***/ }),
+
 /***/ 1730:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -25657,52 +25682,139 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.run = run;
 const core = __importStar(__nccwpck_require__(7484));
-const wait_1 = __nccwpck_require__(910);
-/**
- * The main function for the action.
- * @returns {Promise<void>} Resolves when the action is complete.
- */
+const exec = __importStar(__nccwpck_require__(5236));
+const fs = __importStar(__nccwpck_require__(9896));
+async function getXcresultSummary(path) {
+    let buildOutput = '';
+    let testOutput = '';
+    const execOptions = {
+        listeners: {
+            stdout: (data) => {
+                buildOutput += data.toString();
+            }
+        }
+    };
+    const testExecOptions = {
+        listeners: {
+            stdout: (data) => {
+                testOutput += data.toString();
+            }
+        }
+    };
+    await exec.exec('xcrun', ['xcresulttool', 'get', 'build-results', 'summary', '--path', path], execOptions);
+    await exec.exec('xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', path], testExecOptions);
+    let parsedBuildResult;
+    let parsedTestResult;
+    try {
+        parsedBuildResult = JSON.parse(buildOutput);
+        parsedTestResult = JSON.parse(testOutput);
+    }
+    catch (err) {
+        const error = err instanceof Error ? err.message : 'Unknown error during JSON parsing';
+        throw new Error(`Failed to parse JSON output: ${error}`);
+    }
+    if (!isBuildResult(parsedBuildResult)) {
+        throw new Error('Invalid build result format');
+    }
+    if (!isTestResult(parsedTestResult)) {
+        throw new Error('Invalid test result format');
+    }
+    return {
+        buildResult: parsedBuildResult,
+        testResult: parsedTestResult
+    };
+}
+function generateMarkdownSummary(buildResult, testResult) {
+    const buildDuration = ((buildResult.endTime - buildResult.startTime) /
+        60).toFixed(2);
+    const testDuration = ((testResult.finishTime - testResult.startTime) /
+        60).toFixed(2);
+    let markdown = `## Build Summary\n\n`;
+    // Build Results
+    markdown += `### Build Results\n`;
+    markdown += `**Status**: ${buildResult.status === 'failed' ? '❌ Failed' : '✅ Passed'}\n`;
+    markdown += `**Duration**: ${buildDuration} minutes\n\n`;
+    markdown += `### Environment\n`;
+    markdown += `- Platform: ${buildResult.destination.platform}\n`;
+    markdown += `- Device: ${buildResult.destination.deviceName}\n`;
+    markdown += `- OS Version: ${buildResult.destination.osVersion}\n\n`;
+    markdown += `### Build Statistics\n`;
+    markdown += `- Errors: ${buildResult.errorCount}\n`;
+    markdown += `- Warnings: ${buildResult.warningCount}\n`;
+    markdown += `- Analyzer Warnings: ${buildResult.analyzerWarningCount}\n\n`;
+    // Test Results
+    markdown += `## Test Summary\n\n`;
+    markdown += `**Status**: ${testResult.result === 'Failed' ? '❌ Failed' : '✅ Passed'}\n`;
+    markdown += `**Duration**: ${testDuration} minutes\n\n`;
+    markdown += `### Test Statistics\n`;
+    markdown += `- Total Tests: ${testResult.totalTestCount}\n`;
+    markdown += `- Passed: ${testResult.passedTests}\n`;
+    markdown += `- Failed: ${testResult.failedTests}\n`;
+    markdown += `- Skipped: ${testResult.skippedTests}\n`;
+    markdown += `- Expected Failures: ${testResult.expectedFailures}\n\n`;
+    // Device specific results
+    if (testResult.devicesAndConfigurations.length > 0) {
+        markdown += `### Device-specific Results\n`;
+        testResult.devicesAndConfigurations.forEach(config => {
+            markdown += `#### ${config.device.deviceName} (${config.device.platform})\n`;
+            markdown += `- Passed: ${config.passedTests}\n`;
+            markdown += `- Failed: ${config.failedTests}\n`;
+            markdown += `- Skipped: ${config.skippedTests}\n`;
+            markdown += `- Configuration: ${config.testPlanConfiguration.configurationName}\n\n`;
+        });
+    }
+    // Build Errors
+    if (buildResult.errorCount > 0) {
+        markdown += `### Build Errors\n`;
+        buildResult.errors.forEach(error => {
+            markdown += `- **${error.issueType}**: ${error.message}\n`;
+            markdown += `  - Target: ${error.targetName}\n`;
+            markdown += `  - Location: ${error.sourceURL.split('#')[0]}\n\n`;
+        });
+    }
+    // Test Failures
+    if (testResult.testFailures.length > 0) {
+        markdown += `### Test Failures\n`;
+        testResult.testFailures.forEach(failure => {
+            markdown += `- **${failure.testName}** (${failure.targetName})\n`;
+            markdown += `  - Error: ${failure.failureText}\n\n`;
+        });
+    }
+    return markdown;
+}
+// Type guards
+function isBuildResult(value) {
+    return (typeof value === 'object' &&
+        value !== null &&
+        'status' in value &&
+        'errorCount' in value &&
+        'warningCount' in value);
+}
+function isTestResult(value) {
+    return (typeof value === 'object' &&
+        value !== null &&
+        'result' in value &&
+        'totalTestCount' in value &&
+        'failedTests' in value);
+}
 async function run() {
     try {
-        const ms = core.getInput('milliseconds');
-        // Debug logs are only output if the `ACTIONS_STEP_DEBUG` secret is true
-        core.debug(`Waiting ${ms} milliseconds ...`);
-        // Log the current timestamp, wait, then log the new timestamp
-        core.debug(new Date().toTimeString());
-        await (0, wait_1.wait)(parseInt(ms, 10));
-        core.debug(new Date().toTimeString());
-        // Set outputs for other workflow steps to use
-        core.setOutput('time', new Date().toTimeString());
+        const xcresultPath = core.getInput('xcresult-path');
+        if (!fs.existsSync(xcresultPath)) {
+            throw new Error(`xcresult file not found at path: ${xcresultPath}`);
+        }
+        const { buildResult, testResult } = await getXcresultSummary(xcresultPath);
+        const markdownSummary = generateMarkdownSummary(buildResult, testResult);
+        core.setOutput('summary', markdownSummary);
+        core.setOutput('total-tests', testResult.totalTestCount);
+        core.setOutput('failed-tests', testResult.failedTests);
+        core.setOutput('passed-tests', testResult.passedTests);
+        await core.summary.addRaw(markdownSummary).write();
     }
     catch (error) {
-        // Fail the workflow run if an error occurs
         if (error instanceof Error)
             core.setFailed(error.message);
     }
-}
-
-
-/***/ }),
-
-/***/ 910:
-/***/ ((__unused_webpack_module, exports) => {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.wait = wait;
-/**
- * Wait for a number of milliseconds.
- * @param milliseconds The number of milliseconds to wait.
- * @returns {Promise<string>} Resolves with 'done!' after the wait is over.
- */
-async function wait(milliseconds) {
-    return new Promise(resolve => {
-        if (isNaN(milliseconds)) {
-            throw new Error('milliseconds not a number');
-        }
-        setTimeout(() => resolve('done!'), milliseconds);
-    });
 }
 
 
@@ -27611,23 +27723,13 @@ module.exports = parseParams
 /******/ 	if (typeof __nccwpck_require__ !== 'undefined') __nccwpck_require__.ab = __dirname + "/";
 /******/ 	
 /************************************************************************/
-var __webpack_exports__ = {};
-// This entry need to be wrapped in an IIFE because it need to be in strict mode.
-(() => {
-"use strict";
-var exports = __webpack_exports__;
-
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-/**
- * The entrypoint for the action.
- */
-const main_1 = __nccwpck_require__(1730);
-// eslint-disable-next-line @typescript-eslint/no-floating-promises
-(0, main_1.run)();
-
-})();
-
-module.exports = __webpack_exports__;
+/******/ 	
+/******/ 	// startup
+/******/ 	// Load entry module and return exports
+/******/ 	// This entry module is referenced by other modules so it can't be inlined
+/******/ 	var __webpack_exports__ = __nccwpck_require__(9407);
+/******/ 	module.exports = __webpack_exports__;
+/******/ 	
 /******/ })()
 ;
 //# sourceMappingURL=index.js.map

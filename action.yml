@@ -1,5 +1,5 @@
 name: 'xcresult-summary'
-description: 'Generate a markdown summary from Xcode test results'
+description: 'Generate a markdown summary from Xcode test results (.xcresult)'
 author: 'tsoejima'
 
 branding:
@@ -21,7 +21,13 @@ outputs:
     description: 'Number of failed tests'
   passed-tests:
     description: 'Number of passed tests'
+  build-status:
+    description: 'Build status (succeeded/failed)'
+  error-count:
+    description: 'Number of build errors'
+  warning-count:
+    description: 'Number of build warnings'
 
 runs:
-  using: node20
-  main: dist/index.js
+  using: 'node20'
+  main: 'dist/index.js'

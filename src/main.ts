@@ -2,9 +2,16 @@ import * as core from '@actions/core'
 import * as exec from '@actions/exec'
 import * as fs from 'fs'
 
+interface ExecOptions extends exec.ExecOptions {
+  listeners?: {
+    stdout?: (data: Buffer) => void
+    stderr?: (data: Buffer) => void
+  }
+}
+
 interface BuildResult {
   analyzerWarningCount: number
-  analyzerWarnings: any[]
+  analyzerWarnings: unknown[]
   destination: {
     architecture: string
     deviceId: string
@@ -15,27 +22,21 @@ interface BuildResult {
   }
   endTime: number
   errorCount: number
-  errors: Array<{
+  errors: {
     className: string
     issueType: string
     message: string
     sourceURL: string
     targetName: string
-  }>
+  }[]
   startTime: number
   status: string
   warningCount: number
-  warnings: Array<{
-    className: string
-    issueType: string
-    message: string
-    sourceURL: string
-    targetName: string
-  }>
+  warnings: unknown[]
 }
 
 interface TestResult {
-  devicesAndConfigurations: Array<{
+  devicesAndConfigurations: {
     device: {
       architecture: string
       deviceId: string
@@ -52,7 +53,7 @@ interface TestResult {
       configurationId: string
       configurationName: string
     }
-  }>
+  }[]
   environmentDescription: string
   expectedFailures: number
   failedTests: number
@@ -61,12 +62,12 @@ interface TestResult {
   result: string
   skippedTests: number
   startTime: number
-  testFailures: Array<{
+  testFailures: {
     failureText: string
     targetName: string
     testIdentifier: number
     testName: string
-  }>
+  }[]
   title: string
   totalTestCount: number
 }
@@ -78,35 +79,57 @@ async function getXcresultSummary(path: string): Promise<{
   let buildOutput = ''
   let testOutput = ''
 
-  // Build resultsの取得
+  const execOptions: ExecOptions = {
+    listeners: {
+      stdout: (data: Buffer) => {
+        buildOutput += data.toString()
+      }
+    }
+  }
+
+  const testExecOptions: ExecOptions = {
+    listeners: {
+      stdout: (data: Buffer) => {
+        testOutput += data.toString()
+      }
+    }
+  }
+
   await exec.exec(
     'xcrun',
     ['xcresulttool', 'get', 'build-results', 'summary', '--path', path],
-    {
-      listeners: {
-        stdout: (data: Buffer) => {
-          buildOutput += data.toString()
-        }
-      }
-    }
+    execOptions
   )
 
-  // Test resultsの取得
   await exec.exec(
     'xcrun',
     ['xcresulttool', 'get', 'test-results', 'summary', '--path', path],
-    {
-      listeners: {
-        stdout: (data: Buffer) => {
-          testOutput += data.toString()
-        }
-      }
-    }
+    testExecOptions
   )
 
+  let parsedBuildResult: unknown
+  let parsedTestResult: unknown
+
+  try {
+    parsedBuildResult = JSON.parse(buildOutput)
+    parsedTestResult = JSON.parse(testOutput)
+  } catch (err) {
+    const error =
+      err instanceof Error ? err.message : 'Unknown error during JSON parsing'
+    throw new Error(`Failed to parse JSON output: ${error}`)
+  }
+
+  if (!isBuildResult(parsedBuildResult)) {
+    throw new Error('Invalid build result format')
+  }
+
+  if (!isTestResult(parsedTestResult)) {
+    throw new Error('Invalid test result format')
+  }
+
   return {
-    buildResult: JSON.parse(buildOutput),
-    testResult: JSON.parse(testOutput)
+    buildResult: parsedBuildResult,
+    testResult: parsedTestResult
   }
 }
 
@@ -184,6 +207,27 @@ function generateMarkdownSummary(
   }
 
   return markdown
+}
+
+// Type guards
+function isBuildResult(value: unknown): value is BuildResult {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'status' in value &&
+    'errorCount' in value &&
+    'warningCount' in value
+  )
+}
+
+function isTestResult(value: unknown): value is TestResult {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'result' in value &&
+    'totalTestCount' in value &&
+    'failedTests' in value
+  )
 }
 
 export async function run(): Promise<void> {

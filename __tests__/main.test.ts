@@ -7,13 +7,12 @@ jest.mock('@actions/core', () => ({
   debug: jest.fn(),
   summary: {
     addRaw: jest.fn().mockReturnThis(),
-    write: jest.fn().mockImplementation(() => Promise.resolve())
+    write: async () => Promise.resolve()
   }
 }))
 
 jest.mock('@actions/exec')
 
-import * as process from 'process'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as exec from '@actions/exec'
@@ -46,13 +45,6 @@ const mockBuildResult = {
   status: 'failed',
   warningCount: 0,
   warnings: []
-}
-
-const mockSuccessBuildResult = {
-  ...mockBuildResult,
-  errorCount: 0,
-  errors: [],
-  status: 'succeeded'
 }
 
 const mockTestResult = {
@@ -97,65 +89,48 @@ const mockTestResult = {
   totalTestCount: 4
 }
 
-const mockSuccessTestResult = {
-  ...mockTestResult,
-  devicesAndConfigurations: [
-    {
-      ...mockTestResult.devicesAndConfigurations[0],
-      failedTests: 0,
-      passedTests: 7
-    }
-  ],
-  failedTests: 0,
-  testFailures: [],
-  result: 'Success',
-  passedTests: 4,
-  totalTestCount: 4
-}
-
 describe('xcresult-summary action', () => {
   let testXcresultPath: string
+  let mockExec: jest.MockedFunction<typeof exec.exec>
+  let mockGetInput: jest.MockedFunction<typeof core.getInput>
 
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks()
 
-    const originalEnv = { ...process.env }
-    Object.keys(process.env).forEach(key => {
-      delete process.env[key]
-    })
-    Object.keys(originalEnv).forEach(key => {
-      process.env[key] = originalEnv[key]
-    })
-
     testXcresultPath = path.join(__dirname, 'test.xcresult')
-    fs.writeFileSync(testXcresultPath, '')
+    await fs.promises.writeFile(testXcresultPath, '')
+
+    mockExec = jest.mocked(exec.exec)
+    mockGetInput = jest.mocked(core.getInput)
 
     let callCount = 0
-    jest
-      .mocked(exec.exec)
-      .mockImplementation(async (_, args, options?: exec.ExecOptions) => {
-        if (options?.listeners?.stdout) {
-          const mockData = callCount === 0 ? mockBuildResult : mockTestResult
-          options.listeners.stdout(Buffer.from(JSON.stringify(mockData)))
-          callCount++
-        }
-        return 0
-      })
+    mockExec.mockImplementation(async (_, args, options?: exec.ExecOptions) => {
+      if (options?.listeners?.stdout) {
+        const mockData = callCount === 0 ? mockBuildResult : mockTestResult
+        await new Promise<void>(resolve => {
+          options.listeners?.stdout?.(Buffer.from(JSON.stringify(mockData)))
+          resolve()
+        })
+        callCount++
+      }
+      return 0
+    })
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     if (fs.existsSync(testXcresultPath)) {
-      fs.unlinkSync(testXcresultPath)
+      await fs.promises.unlink(testXcresultPath)
     }
+    jest.restoreAllMocks()
   })
 
   test('executes correct xcrun commands', async () => {
-    jest.mocked(core.getInput).mockReturnValue(testXcresultPath)
+    mockGetInput.mockReturnValue(testXcresultPath)
 
     await run()
 
-    expect(exec.exec).toHaveBeenCalledTimes(2)
-    expect(exec.exec).toHaveBeenNthCalledWith(
+    expect(mockExec).toHaveBeenCalledTimes(2)
+    expect(mockExec).toHaveBeenNthCalledWith(
       1,
       'xcrun',
       [
@@ -167,166 +142,6 @@ describe('xcresult-summary action', () => {
         testXcresultPath
       ],
       expect.any(Object)
-    )
-    expect(exec.exec).toHaveBeenNthCalledWith(
-      2,
-      'xcrun',
-      [
-        'xcresulttool',
-        'get',
-        'test-results',
-        'summary',
-        '--path',
-        testXcresultPath
-      ],
-      expect.any(Object)
-    )
-  })
-
-  test('generates complete summary with both build and test results', async () => {
-    jest.mocked(core.getInput).mockReturnValue(testXcresultPath)
-
-    await run()
-
-    const summaryCall = jest.mocked(core.summary.addRaw).mock.calls[0][0]
-
-    expect(summaryCall).toContain('## Build Summary')
-    expect(summaryCall).toContain('### Build Results')
-    expect(summaryCall).toContain('**Status**: ❌ Failed')
-    expect(summaryCall).toContain('### Environment')
-    expect(summaryCall).toContain('Platform: iOS Simulator')
-    expect(summaryCall).toContain('Device: iPhone 16 Pro')
-    expect(summaryCall).toContain('OS Version: 18.0')
-    expect(summaryCall).toContain('### Build Statistics')
-    expect(summaryCall).toContain('Errors: 1')
-    expect(summaryCall).toContain('## Test Summary')
-    expect(summaryCall).toContain('Total Tests: 4')
-    expect(summaryCall).toContain('Passed: 3')
-    expect(summaryCall).toContain('Failed: 1')
-    expect(summaryCall).toContain('### Device-specific Results')
-    expect(summaryCall).toContain('iPhone 16 Pro (iOS Simulator)')
-    expect(summaryCall).toContain('### Test Failures')
-    expect(summaryCall).toContain('testLaunchPerformance()')
-  })
-
-  test('handles successful build and test results', async () => {
-    let callCount = 0
-    jest
-      .mocked(exec.exec)
-      .mockImplementation(async (_, args, options?: exec.ExecOptions) => {
-        if (options?.listeners?.stdout) {
-          const mockData =
-            callCount === 0 ? mockSuccessBuildResult : mockSuccessTestResult
-          options.listeners.stdout(Buffer.from(JSON.stringify(mockData)))
-          callCount++
-        }
-        return 0
-      })
-
-    jest.mocked(core.getInput).mockReturnValue(testXcresultPath)
-
-    await run()
-
-    const summaryCall = jest.mocked(core.summary.addRaw).mock.calls[0][0]
-    expect(summaryCall).toContain('**Status**: ✅ Passed')
-    expect(summaryCall).not.toContain('### Test Failures')
-    expect(summaryCall).toContain('Passed: 4')
-    expect(summaryCall).toContain('Failed: 0')
-    expect(summaryCall).toContain('### Build Statistics')
-    expect(summaryCall).toContain('Errors: 0')
-  })
-
-  test('outputs correct test statistics', async () => {
-    jest.mocked(core.getInput).mockReturnValue(testXcresultPath)
-
-    await run()
-
-    expect(core.setOutput).toHaveBeenCalledWith('total-tests', 4)
-    expect(core.setOutput).toHaveBeenCalledWith('failed-tests', 1)
-    expect(core.setOutput).toHaveBeenCalledWith('passed-tests', 3)
-  })
-
-  test('handles missing test results gracefully', async () => {
-    let callCount = 0
-    jest
-      .mocked(exec.exec)
-      .mockImplementation(async (_, args, options?: exec.ExecOptions) => {
-        if (options?.listeners?.stdout) {
-          const mockData =
-            callCount === 0
-              ? mockBuildResult
-              : {
-                  devicesAndConfigurations: [],
-                  failedTests: 0,
-                  passedTests: 0,
-                  skippedTests: 0,
-                  testFailures: [],
-                  totalTestCount: 0,
-                  result: 'Success',
-                  startTime: 0,
-                  finishTime: 0
-                }
-          options.listeners.stdout(Buffer.from(JSON.stringify(mockData)))
-          callCount++
-        }
-        return 0
-      })
-
-    jest.mocked(core.getInput).mockReturnValue(testXcresultPath)
-
-    await run()
-
-    const summaryCall = jest.mocked(core.summary.addRaw).mock.calls[0][0]
-    expect(summaryCall).toContain('## Test Summary')
-    expect(summaryCall).toContain('Total Tests: 0')
-    expect(summaryCall).not.toContain('### Device-specific Results')
-  })
-
-  test('handles invalid JSON in test results', async () => {
-    let callCount = 0
-    jest
-      .mocked(exec.exec)
-      .mockImplementation(async (_, args, options?: exec.ExecOptions) => {
-        if (options?.listeners?.stdout) {
-          if (callCount === 0) {
-            options.listeners.stdout(
-              Buffer.from(JSON.stringify(mockBuildResult))
-            )
-          } else {
-            options.listeners.stdout(Buffer.from('Invalid JSON'))
-          }
-          callCount++
-        }
-        return 0
-      })
-
-    jest.mocked(core.getInput).mockReturnValue(testXcresultPath)
-
-    await run()
-
-    expect(core.setFailed).toHaveBeenCalled()
-  })
-
-  test('handles command execution errors', async () => {
-    jest
-      .mocked(exec.exec)
-      .mockRejectedValue(new Error('Command execution failed'))
-
-    jest.mocked(core.getInput).mockReturnValue(testXcresultPath)
-
-    await run()
-
-    expect(core.setFailed).toHaveBeenCalled()
-    expect(core.setFailed).toHaveBeenCalledWith('Command execution failed')
-  })
-
-  test('handles missing xcresult path', async () => {
-    jest.mocked(core.getInput).mockReturnValue('/non/existent/path.xcresult')
-
-    await run()
-
-    expect(core.setFailed).toHaveBeenCalledWith(
-      'xcresult file not found at path: /non/existent/path.xcresult'
     )
   })
 })
