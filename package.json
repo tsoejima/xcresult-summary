@@ -1,21 +1,23 @@
 {
-  "name": "typescript-action",
-  "description": "GitHub Actions TypeScript template",
-  "version": "0.0.0",
+  "name": "xcresult-summary",
+  "description": "Generate a markdown summary from Xcode test results (.xcresult)",
+  "version": "0.0.1",
   "author": "",
   "private": true,
-  "homepage": "https://github.com/actions/typescript-action",
+  "homepage": "https://github.com/YourUsername/xcresult-summary",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/actions/typescript-action.git"
+    "url": "git+https://github.com/YourUsername/xcresult-summary.git"
   },
   "bugs": {
-    "url": "https://github.com/actions/typescript-action/issues"
+    "url": "https://github.com/YourUsername/xcresult-summary/issues"
   },
   "keywords": [
     "actions",
     "node",
-    "setup"
+    "xcresult",
+    "xcode",
+    "test-results"
   ],
   "exports": {
     ".": "./dist/index.js"
@@ -67,7 +69,8 @@
     ]
   },
   "dependencies": {
-    "@actions/core": "^1.11.1"
+    "@actions/core": "^1.11.1",
+    "@actions/exec": "^1.1.1"
   },
   "devDependencies": {
     "@github/local-action": "^2.1.2",

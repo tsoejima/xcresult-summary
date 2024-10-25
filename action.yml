@@ -1,23 +1,26 @@
-name: 'The name of your action here'
-description: 'Provide a description here'
-author: 'Your name or organization here'
+name: 'xcresult-summary'
+description: 'Generate a markdown summary from Xcode test results'
+author: 'tsoejima'
 
-# Add your action's branding here. This will appear on the GitHub Marketplace.
 branding:
-  icon: 'heart'
-  color: 'red'
+  icon: 'check-circle'
+  color: 'blue'
 
-# Define your inputs here.
 inputs:
-  milliseconds:
-    description: 'Your input description here'
+  xcresult-path:
+    description: 'Path to the .xcresult bundle'
     required: true
-    default: '1000'
+    default: 'build/reports/tests.xcresult'
 
-# Define your outputs here.
 outputs:
-  time:
-    description: 'Your output description here'
+  summary:
+    description: 'Test summary in markdown format'
+  total-tests:
+    description: 'Total number of tests'
+  failed-tests:
+    description: 'Number of failed tests'
+  passed-tests:
+    description: 'Number of passed tests'
 
 runs:
   using: node20
