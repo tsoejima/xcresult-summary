@@ -25800,20 +25800,22 @@ function isTestResult(value) {
 async function run() {
     try {
         const xcresultPath = core.getInput('xcresult-path');
-        core.info(`📦 Processing xcresult at: ${xcresultPath}`);
+        // ワークフロー・コマンドを使用してログ出力
+        core.startGroup('XCResult Analysis');
+        console.log('::notice::📦 Processing xcresult at: ' + xcresultPath);
         if (!fs.existsSync(xcresultPath)) {
             throw new Error(`xcresult file not found at path: ${xcresultPath}`);
         }
-        core.info('🔍 Analyzing xcresult...');
+        console.log('::notice::🔍 Analyzing xcresult...');
         const { buildResult, testResult } = await getXcresultSummary(xcresultPath);
-        core.info(`📊 Build Status: ${buildResult.status}`);
-        core.info(`✅ Passed Tests: ${testResult.passedTests}`);
-        core.info(`❌ Failed Tests: ${testResult.failedTests}`);
+        console.log(`::notice::📊 Build Status: ${buildResult.status}`);
+        console.log(`::notice::✅ Passed Tests: ${testResult.passedTests}`);
+        console.log(`::notice::❌ Failed Tests: ${testResult.failedTests}`);
         if (buildResult.errorCount > 0) {
-            core.warning(`Found ${buildResult.errorCount} build errors`);
+            console.log(`::warning::Found ${buildResult.errorCount} build errors`);
         }
         if (testResult.failedTests > 0) {
-            core.warning(`Found ${testResult.failedTests} test failures`);
+            console.log(`::warning::Found ${testResult.failedTests} test failures`);
         }
         const markdownSummary = generateMarkdownSummary(buildResult, testResult);
         // 出力を設定
@@ -25828,11 +25830,12 @@ async function run() {
             .addHeading('XCResult Summary')
             .addRaw(markdownSummary)
             .write();
-        core.info('✨ Summary generated successfully');
+        console.log('::notice::✨ Summary generated successfully');
+        core.endGroup();
     }
     catch (error) {
         if (error instanceof Error) {
-            core.error(`❌ Error: ${error.message}`);
+            console.log(`::error::${error.message}`);
             await core.summary
                 .addHeading('Error')
                 .addRaw(`❌ ${error.message}`)
