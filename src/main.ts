@@ -145,65 +145,69 @@ function generateMarkdownSummary(
     (testResult.finishTime - testResult.startTime) /
     60
   ).toFixed(2)
+  let markdown = ''
 
-  let markdown = `## Build Summary\n\n`
+  // ビルドが失敗した場合はテスト統計を表示しない
+  if (buildResult.status !== 'failed') {
+    // Test Statistics Table
+    markdown += '## Test Statistics\n\n'
+    markdown += '| Status | Count |\n'
+    markdown += '|--------|-------|\n'
+    markdown += `| ✅ Passed | ${testResult.passedTests} |\n`
+    markdown += `| ❌ Failed | ${testResult.failedTests} |\n`
+    markdown += `| ⏭️ Skipped | ${testResult.skippedTests} |\n`
+    markdown += `| 🔄 Expected Failures | ${testResult.expectedFailures} |\n`
+    markdown += `| 📊 Total | ${testResult.totalTestCount} |\n\n`
+  }
 
   // Build Results
-  markdown += `### Build Results\n`
+  markdown += '## Build Results\n\n'
   markdown += `**Status**: ${buildResult.status === 'failed' ? '❌ Failed' : '✅ Passed'}\n`
   markdown += `**Duration**: ${buildDuration} minutes\n\n`
 
-  markdown += `### Environment\n`
-  markdown += `- Platform: ${buildResult.destination.platform}\n`
-  markdown += `- Device: ${buildResult.destination.deviceName}\n`
-  markdown += `- OS Version: ${buildResult.destination.osVersion}\n\n`
+  // Build Environment
+  markdown += '### Environment\n'
+  markdown += `- 📱 Device: ${buildResult.destination.deviceName}\n`
+  markdown += `- 🖥️ Platform: ${buildResult.destination.platform}\n`
+  markdown += `- 📦 OS Version: ${buildResult.destination.osVersion}\n\n`
 
-  markdown += `### Build Statistics\n`
-  markdown += `- Errors: ${buildResult.errorCount}\n`
-  markdown += `- Warnings: ${buildResult.warningCount}\n`
-  markdown += `- Analyzer Warnings: ${buildResult.analyzerWarningCount}\n\n`
-
-  // Test Results
-  markdown += `## Test Summary\n\n`
-  markdown += `**Status**: ${testResult.result === 'Failed' ? '❌ Failed' : '✅ Passed'}\n`
-  markdown += `**Duration**: ${testDuration} minutes\n\n`
-
-  markdown += `### Test Statistics\n`
-  markdown += `- Total Tests: ${testResult.totalTestCount}\n`
-  markdown += `- Passed: ${testResult.passedTests}\n`
-  markdown += `- Failed: ${testResult.failedTests}\n`
-  markdown += `- Skipped: ${testResult.skippedTests}\n`
-  markdown += `- Expected Failures: ${testResult.expectedFailures}\n\n`
-
-  // Device specific results
-  if (testResult.devicesAndConfigurations.length > 0) {
-    markdown += `### Device-specific Results\n`
-    testResult.devicesAndConfigurations.forEach(config => {
-      markdown += `#### ${config.device.deviceName} (${config.device.platform})\n`
-      markdown += `- Passed: ${config.passedTests}\n`
-      markdown += `- Failed: ${config.failedTests}\n`
-      markdown += `- Skipped: ${config.skippedTests}\n`
-      markdown += `- Configuration: ${config.testPlanConfiguration.configurationName}\n\n`
-    })
-  }
-
-  // Build Errors
+  // Build Errors (if any)
   if (buildResult.errorCount > 0) {
-    markdown += `### Build Errors\n`
+    markdown += '### Build Errors\n\n'
     buildResult.errors.forEach(error => {
-      markdown += `- **${error.issueType}**: ${error.message}\n`
-      markdown += `  - Target: ${error.targetName}\n`
-      markdown += `  - Location: ${error.sourceURL.split('#')[0]}\n\n`
+      // ファイルパスをプロジェクトルートからの相対パスに変換
+      const filePath = error.sourceURL.split('/').slice(-3).join('/')
+      markdown += `**${error.issueType}**\n`
+      markdown += `📍 \`${filePath}\`\n`
+      markdown += `${error.message}\n\n`
     })
   }
 
-  // Test Failures
-  if (testResult.testFailures.length > 0) {
-    markdown += `### Test Failures\n`
-    testResult.testFailures.forEach(failure => {
-      markdown += `- **${failure.testName}** (${failure.targetName})\n`
-      markdown += `  - Error: ${failure.failureText}\n\n`
-    })
+  // Test Results (only if build succeeded)
+  if (buildResult.status !== 'failed') {
+    markdown += '## Test Results\n\n'
+    markdown += `**Duration**: ${testDuration} minutes\n\n`
+
+    // Test Failures (if any)
+    if (testResult.testFailures.length > 0) {
+      markdown += '### Test Failures\n\n'
+      testResult.testFailures.forEach(failure => {
+        markdown += `❌ **${failure.testName}** (${failure.targetName})\n`
+        markdown += `${failure.failureText}\n\n`
+      })
+    }
+
+    // Device-specific results
+    if (testResult.devicesAndConfigurations.length > 0) {
+      markdown += '### Device Results\n\n'
+      testResult.devicesAndConfigurations.forEach(config => {
+        markdown += `#### ${config.device.deviceName} (${config.device.platform})\n`
+        markdown += `- ✅ Passed: ${config.passedTests}\n`
+        markdown += `- ❌ Failed: ${config.failedTests}\n`
+        markdown += `- ⏭️ Skipped: ${config.skippedTests}\n`
+        markdown += `- ⚙️ Configuration: ${config.testPlanConfiguration.configurationName}\n\n`
+      })
+    }
   }
 
   return markdown
@@ -234,8 +238,6 @@ export async function run(): Promise<void> {
   try {
     const xcresultPath = core.getInput('xcresult-path')
 
-    process.stdout.write('\n📦 Processing xcresult at: ' + xcresultPath + '\n')
-
     if (!fs.existsSync(xcresultPath)) {
       throw new Error(`xcresult file not found at path: ${xcresultPath}`)
     }
@@ -243,16 +245,17 @@ export async function run(): Promise<void> {
     process.stdout.write('🔍 Analyzing xcresult...\n')
     const { buildResult, testResult } = await getXcresultSummary(xcresultPath)
 
-    process.stdout.write(`📊 Build Status: ${buildResult.status}\n`)
-    process.stdout.write(`✅ Passed Tests: ${testResult.passedTests}\n`)
-    process.stdout.write(`❌ Failed Tests: ${testResult.failedTests}\n`)
-
+    // 結果の概要を出力
     if (buildResult.errorCount > 0) {
-      process.stdout.write(`⚠️ Found ${buildResult.errorCount} build errors\n`)
-    }
-
-    if (testResult.failedTests > 0) {
-      process.stdout.write(`⚠️ Found ${testResult.failedTests} test failures\n`)
+      process.stdout.write(
+        `❌ Build failed with ${buildResult.errorCount} errors\n`
+      )
+    } else if (testResult.failedTests > 0) {
+      process.stdout.write(
+        `❌ Tests completed with ${testResult.failedTests} failures\n`
+      )
+    } else {
+      process.stdout.write('✅ All tests passed successfully\n')
     }
 
     const markdownSummary = generateMarkdownSummary(buildResult, testResult)
@@ -266,12 +269,7 @@ export async function run(): Promise<void> {
     core.setOutput('warning-count', buildResult.warningCount)
 
     // Summaryを作成
-    await core.summary
-      .addHeading('XCResult Summary')
-      .addRaw(markdownSummary)
-      .write()
-
-    process.stdout.write('✨ Summary generated successfully\n')
+    await core.summary.addRaw(markdownSummary).write()
   } catch (error) {
     if (error instanceof Error) {
       process.stderr.write(`❌ Error: ${error.message}\n`)
