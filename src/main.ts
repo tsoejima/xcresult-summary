@@ -173,14 +173,17 @@ function generateMarkdownSummary(
 
   // Build Errors (if any)
   if (buildResult.errorCount > 0) {
-    markdown += '### Build Errors\n\n'
+    markdown += '### ❌ Build Errors\n\n'
+    markdown += '| Location | Error |\n'
+    markdown += '|----------|-------|\n'
     buildResult.errors.forEach(error => {
       // ファイルパスをプロジェクトルートからの相対パスに変換
       const filePath = error.sourceURL.split('/').slice(-3).join('/')
-      markdown += `**${error.issueType}**\n`
-      markdown += `📍 \`${filePath}\`\n`
-      markdown += `${error.message}\n\n`
+      // エラーメッセージを整形（必要に応じて改行を置換）
+      const errorMessage = error.message.replace(/\n/g, '<br>')
+      markdown += `| 📍 \`${filePath}\`<br>*${error.issueType}* | ${errorMessage} |\n`
     })
+    markdown += '\n'
   }
 
   // Test Results (only if build succeeded)
