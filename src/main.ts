@@ -149,15 +149,39 @@ function generateMarkdownSummary(
 
   // ビルドが失敗した場合はテスト統計を表示しない
   if (buildResult.status !== 'failed') {
-    // Test Statistics Table
+    // Test Statistics - 横並びの表
     markdown += '## Test Statistics\n\n'
-    markdown += '| Status | Count |\n'
-    markdown += '|--------|-------|\n'
-    markdown += `| ✅ Passed | ${testResult.passedTests} |\n`
-    markdown += `| ❌ Failed | ${testResult.failedTests} |\n`
-    markdown += `| ⏭️ Skipped | ${testResult.skippedTests} |\n`
-    markdown += `| 🔄 Expected Failures | ${testResult.expectedFailures} |\n`
-    markdown += `| 📊 Total | ${testResult.totalTestCount} |\n\n`
+    markdown +=
+      '| ✅ Passed | ❌ Failed | ⏭️ Skipped | 🔄 Expected | 📊 Total |\n'
+    markdown +=
+      '|-----------|-----------|------------|-------------|----------|\n'
+    markdown += `| ${testResult.passedTests} | ${testResult.failedTests} | ${testResult.skippedTests} | ${testResult.expectedFailures} | ${testResult.totalTestCount} |\n\n`
+
+    // Test Results
+    markdown += '## Test Results\n\n'
+    markdown += `**Duration**: ${testDuration} minutes\n\n`
+
+    // Test Failures - 表形式
+    if (testResult.testFailures.length > 0) {
+      markdown += '### ❌ Test Failures\n\n'
+      markdown += '| Test | Details |\n'
+      markdown += '|------|----------|\n'
+      testResult.testFailures.forEach(failure => {
+        markdown += `| **${failure.testName}**<br>*${failure.targetName}* | ${failure.failureText.replace(/\n/g, '<br>')} |\n`
+      })
+      markdown += '\n'
+    }
+
+    // Device Results - 表形式
+    if (testResult.devicesAndConfigurations.length > 0) {
+      markdown += '### 📱 Device Results\n\n'
+      markdown += '| Device | Passed | Failed | Skipped | Configuration |\n'
+      markdown += '|---------|---------|---------|----------|---------------|\n'
+      testResult.devicesAndConfigurations.forEach(config => {
+        markdown += `| ${config.device.deviceName}<br>(${config.device.platform}) | ✅ ${config.passedTests} | ❌ ${config.failedTests} | ⏭️ ${config.skippedTests} | ${config.testPlanConfiguration.configurationName} |\n`
+      })
+      markdown += '\n'
+    }
   }
 
   // Build Results
@@ -165,52 +189,25 @@ function generateMarkdownSummary(
   markdown += `**Status**: ${buildResult.status === 'failed' ? '❌ Failed' : '✅ Passed'}\n`
   markdown += `**Duration**: ${buildDuration} minutes\n\n`
 
-  // Build Environment
   markdown += '### Environment\n'
   markdown += `- 📱 Device: ${buildResult.destination.deviceName}\n`
   markdown += `- 🖥️ Platform: ${buildResult.destination.platform}\n`
   markdown += `- 📦 OS Version: ${buildResult.destination.osVersion}\n\n`
 
-  // Build Errors (if any)
+  // Build Errors
   if (buildResult.errorCount > 0) {
     markdown += '### ❌ Build Errors\n\n'
     markdown += '| Location | Error |\n'
     markdown += '|----------|-------|\n'
     buildResult.errors.forEach(error => {
-      // ファイルパスをプロジェクトルートからの相対パスに変換
-      const filePath = error.sourceURL.split('/').slice(-3).join('/')
-      // エラーメッセージを整形（必要に応じて改行を置換）
+      const filePath =
+        error.sourceURL.split('/').find(part => part.endsWith('.swift')) ??
+        error.sourceURL
+
       const errorMessage = error.message.replace(/\n/g, '<br>')
       markdown += `| 📍 \`${filePath}\`<br>*${error.issueType}* | ${errorMessage} |\n`
     })
     markdown += '\n'
-  }
-
-  // Test Results (only if build succeeded)
-  if (buildResult.status !== 'failed') {
-    markdown += '## Test Results\n\n'
-    markdown += `**Duration**: ${testDuration} minutes\n\n`
-
-    // Test Failures (if any)
-    if (testResult.testFailures.length > 0) {
-      markdown += '### Test Failures\n\n'
-      testResult.testFailures.forEach(failure => {
-        markdown += `❌ **${failure.testName}** (${failure.targetName})\n`
-        markdown += `${failure.failureText}\n\n`
-      })
-    }
-
-    // Device-specific results
-    if (testResult.devicesAndConfigurations.length > 0) {
-      markdown += '### Device Results\n\n'
-      testResult.devicesAndConfigurations.forEach(config => {
-        markdown += `#### ${config.device.deviceName} (${config.device.platform})\n`
-        markdown += `- ✅ Passed: ${config.passedTests}\n`
-        markdown += `- ❌ Failed: ${config.failedTests}\n`
-        markdown += `- ⏭️ Skipped: ${config.skippedTests}\n`
-        markdown += `- ⚙️ Configuration: ${config.testPlanConfiguration.configurationName}\n\n`
-      })
-    }
   }
 
   return markdown
