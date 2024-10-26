@@ -25800,22 +25800,20 @@ function isTestResult(value) {
 async function run() {
     try {
         const xcresultPath = core.getInput('xcresult-path');
-        // ワークフロー・コマンドを使用してログ出力
-        core.startGroup('XCResult Analysis');
-        console.log('::notice::📦 Processing xcresult at: ' + xcresultPath);
+        process.stdout.write('\n📦 Processing xcresult at: ' + xcresultPath + '\n');
         if (!fs.existsSync(xcresultPath)) {
             throw new Error(`xcresult file not found at path: ${xcresultPath}`);
         }
-        console.log('::notice::🔍 Analyzing xcresult...');
+        process.stdout.write('🔍 Analyzing xcresult...\n');
         const { buildResult, testResult } = await getXcresultSummary(xcresultPath);
-        console.log(`::notice::📊 Build Status: ${buildResult.status}`);
-        console.log(`::notice::✅ Passed Tests: ${testResult.passedTests}`);
-        console.log(`::notice::❌ Failed Tests: ${testResult.failedTests}`);
+        process.stdout.write(`📊 Build Status: ${buildResult.status}\n`);
+        process.stdout.write(`✅ Passed Tests: ${testResult.passedTests}\n`);
+        process.stdout.write(`❌ Failed Tests: ${testResult.failedTests}\n`);
         if (buildResult.errorCount > 0) {
-            console.log(`::warning::Found ${buildResult.errorCount} build errors`);
+            process.stdout.write(`⚠️ Found ${buildResult.errorCount} build errors\n`);
         }
         if (testResult.failedTests > 0) {
-            console.log(`::warning::Found ${testResult.failedTests} test failures`);
+            process.stdout.write(`⚠️ Found ${testResult.failedTests} test failures\n`);
         }
         const markdownSummary = generateMarkdownSummary(buildResult, testResult);
         // 出力を設定
@@ -25830,12 +25828,11 @@ async function run() {
             .addHeading('XCResult Summary')
             .addRaw(markdownSummary)
             .write();
-        console.log('::notice::✨ Summary generated successfully');
-        core.endGroup();
+        process.stdout.write('✨ Summary generated successfully\n');
     }
     catch (error) {
         if (error instanceof Error) {
-            console.log(`::error::${error.message}`);
+            process.stderr.write(`❌ Error: ${error.message}\n`);
             await core.summary
                 .addHeading('Error')
                 .addRaw(`❌ ${error.message}`)
