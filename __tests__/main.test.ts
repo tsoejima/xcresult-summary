@@ -323,7 +323,6 @@ describe('xcresult-summary action', () => {
       test('includes build errors in summary', () => {
         const summary = generateMarkdownSummary(mockFailedBuildResult, null)
         expect(summary).toContain('Build Errors')
-        expect(summary).toContain('Swift Compiler Error')
         expect(summary).toContain('Cannot find type')
       })
     })

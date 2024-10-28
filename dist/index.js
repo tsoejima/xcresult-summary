@@ -25694,7 +25694,7 @@ async function getXcresultSummary(path) {
                 }
             }
         };
-        await exec.exec('xcrun', ['xcresulttool', 'get', '--format', 'json', '--path', path], testExecOptions);
+        await exec.exec('xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', path], testExecOptions);
         try {
             parsedTestResult = JSON.parse(testOutput);
         }
@@ -25791,8 +25791,7 @@ function generateMarkdownSummary(buildResult, testResult) {
                 filePath = url.replace(workspacePath + '/', '') || 'Unknown file';
             }
             const errorMessage = (error.message || 'Unknown error').replace(/\n/g, '<br>');
-            const issueType = error.issueType || 'Unknown issue';
-            markdown += `| 📍 \`${filePath}\`<br>*${issueType}* | ${errorMessage} |\n`;
+            markdown += `| 📍 \`${filePath}\`| ${errorMessage} |\n`;
         });
         markdown += '\n';
     }

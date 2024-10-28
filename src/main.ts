@@ -131,7 +131,7 @@ export async function getXcresultSummary(
 
     await exec.exec(
       'xcrun',
-      ['xcresulttool', 'get', '--format', 'json', '--path', path],
+      ['xcresulttool', 'get', 'test-results', 'summary', '--path', path],
       testExecOptions
     )
 
@@ -260,8 +260,7 @@ export function generateMarkdownSummary(
         /\n/g,
         '<br>'
       )
-      const issueType = error.issueType || 'Unknown issue'
-      markdown += `| 📍 \`${filePath}\`<br>*${issueType}* | ${errorMessage} |\n`
+      markdown += `| 📍 \`${filePath}\`| ${errorMessage} |\n`
     })
     markdown += '\n'
   }
