@@ -25727,22 +25727,32 @@ function generateMarkdownSummary(buildResult, testResult) {
         markdown += `**Duration**: ${((testResult.finishTime - testResult.startTime) /
             60).toFixed(2)} minutes\n\n`;
         // Test Failures - 表形式
-        if (testResult.testFailures.length > 0) {
+        if (testResult.testFailures && testResult.testFailures.length > 0) {
             markdown += '### ❌ Test Failures\n\n';
             markdown += '| Test | Details |\n';
             markdown += '|------|----------|\n';
             testResult.testFailures.forEach(failure => {
-                markdown += `| **${failure.testName}**<br>*${failure.targetName}* | ${failure.failureText.replace(/\n/g, '<br>')} |\n`;
+                const testName = failure.testName || 'Unknown Test';
+                const targetName = failure.targetName || 'Unknown Target';
+                const failureText = (failure.failureText || 'No failure details').replace(/\n/g, '<br>');
+                markdown += `| **${testName}**<br>*${targetName}* | ${failureText} |\n`;
             });
             markdown += '\n';
         }
         // Device Results - 表形式
-        if (testResult.devicesAndConfigurations.length > 0) {
+        if (testResult.devicesAndConfigurations &&
+            testResult.devicesAndConfigurations.length > 0) {
             markdown += '### 📱 Device Results\n\n';
             markdown += '| Device | Passed | Failed | Skipped | Configuration |\n';
             markdown += '|---------|---------|---------|----------|---------------|\n';
             testResult.devicesAndConfigurations.forEach(config => {
-                markdown += `| ${config.device.deviceName}<br>(${config.device.platform}) | ✅ ${config.passedTests} | ❌ ${config.failedTests} | ⏭️ ${config.skippedTests} | ${config.testPlanConfiguration.configurationName} |\n`;
+                if (config.device) {
+                    const deviceName = config.device.deviceName || 'Unknown Device';
+                    const platform = config.device.platform || 'Unknown Platform';
+                    const configName = config.testPlanConfiguration?.configurationName ||
+                        'Default Configuration';
+                    markdown += `| ${deviceName}<br>(${platform}) | ✅ ${config.passedTests} | ❌ ${config.failedTests} | ⏭️ ${config.skippedTests} | ${configName} |\n`;
+                }
             });
             markdown += '\n';
         }
@@ -25751,12 +25761,15 @@ function generateMarkdownSummary(buildResult, testResult) {
     markdown += '## Build Results\n\n';
     markdown += `**Status**: ${buildResult.status === 'failed' ? '❌ Failed' : '✅ Passed'}\n`;
     markdown += `**Duration**: ${buildDuration} minutes\n\n`;
-    markdown += '### Environment\n';
-    markdown += `- 📱 Device: ${buildResult.destination.deviceName}\n`;
-    markdown += `- 🖥️ Platform: ${buildResult.destination.platform}\n`;
-    markdown += `- 📦 OS Version: ${buildResult.destination.osVersion}\n\n`;
+    // Environment情報が存在する場合のみ表示
+    if (buildResult.destination) {
+        markdown += '### Environment\n';
+        markdown += `- 📱 Device: ${buildResult.destination.deviceName || 'Unknown'}\n`;
+        markdown += `- 🖥️ Platform: ${buildResult.destination.platform || 'Unknown'}\n`;
+        markdown += `- 📦 OS Version: ${buildResult.destination.osVersion || 'Unknown'}\n\n`;
+    }
     // Build Errors
-    if (buildResult.errorCount > 0) {
+    if (buildResult.errorCount > 0 && buildResult.errors) {
         markdown += '### ❌ Build Errors\n\n';
         markdown += '| Location | Error |\n';
         markdown += '|----------|-------|\n';
@@ -25773,10 +25786,21 @@ function generateMarkdownSummary(buildResult, testResult) {
                     filePath = error.sourceURL || 'Unknown file';
                 }
             }
-            const errorMessage = error.message.replace(/\n/g, '<br>');
-            markdown += `| 📍 \`${filePath}\`<br>*${error.issueType}* | ${errorMessage} |\n`;
+            const errorMessage = (error.message || 'Unknown error').replace(/\n/g, '<br>');
+            const issueType = error.issueType || 'Unknown issue';
+            markdown += `| 📍 \`${filePath}\`<br>*${issueType}* | ${errorMessage} |\n`;
         });
         markdown += '\n';
+    }
+    // Warning Count
+    if (buildResult.warningCount > 0) {
+        markdown += `### ⚠️ Warnings\n\n`;
+        markdown += `Total Warnings: ${buildResult.warningCount}\n\n`;
+    }
+    // Analyzer Warning Count
+    if (buildResult.analyzerWarningCount > 0) {
+        markdown += `### 🔍 Analyzer Warnings\n\n`;
+        markdown += `Total Analyzer Warnings: ${buildResult.analyzerWarningCount}\n\n`;
     }
     return markdown;
 }
