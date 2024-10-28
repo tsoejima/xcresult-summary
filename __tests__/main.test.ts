@@ -8,8 +8,8 @@ jest.mock('@actions/core', () => ({
   info: jest.fn(),
   warning: jest.fn(),
   error: jest.fn(),
-  startGroup: jest.fn(), // 追加
-  endGroup: jest.fn(), // 追加
+  startGroup: jest.fn(),
+  endGroup: jest.fn(),
   summary: {
     addRaw: jest.fn().mockReturnThis(),
     addHeading: jest.fn().mockReturnThis(),
@@ -25,7 +25,27 @@ import * as exec from '@actions/exec'
 import * as core from '@actions/core'
 import { run } from '../src/main'
 
-const mockBuildResult = {
+const mockSuccessfulBuildResult = {
+  analyzerWarningCount: 0,
+  analyzerWarnings: [],
+  destination: {
+    architecture: 'arm64',
+    deviceId: '419F41C8-7B32-43C7-A219-2CD9FE2166A1',
+    deviceName: 'iPhone 16 Pro',
+    modelName: 'iPhone 16 Pro',
+    osVersion: '18.0',
+    platform: 'iOS Simulator'
+  },
+  endTime: 1729870806.836,
+  errorCount: 0,
+  errors: [],
+  startTime: 1729870805.508,
+  status: 'succeeded',
+  warningCount: 0,
+  warnings: []
+}
+
+const mockFailedBuildResult = {
   analyzerWarningCount: 0,
   analyzerWarnings: [],
   destination: {
@@ -108,19 +128,6 @@ describe('xcresult-summary action', () => {
 
     mockExec = jest.mocked(exec.exec)
     mockGetInput = jest.mocked(core.getInput)
-
-    let callCount = 0
-    mockExec.mockImplementation(async (_, args, options?: exec.ExecOptions) => {
-      if (options?.listeners?.stdout) {
-        const mockData = callCount === 0 ? mockBuildResult : mockTestResult
-        await new Promise<void>(resolve => {
-          options.listeners?.stdout?.(Buffer.from(JSON.stringify(mockData)))
-          resolve()
-        })
-        callCount++
-      }
-      return 0
-    })
   })
 
   afterEach(async () => {
@@ -130,8 +137,20 @@ describe('xcresult-summary action', () => {
     jest.restoreAllMocks()
   })
 
-  test('executes correct xcrun commands', async () => {
+  test('executes both commands when build succeeds', async () => {
     mockGetInput.mockReturnValue(testXcresultPath)
+    let callCount = 0
+    mockExec.mockImplementation(async (_, args, options?: exec.ExecOptions) => {
+      if (options?.listeners?.stdout) {
+        const mockData =
+          callCount === 0 ? mockSuccessfulBuildResult : mockTestResult
+        await Promise.resolve(
+          options.listeners.stdout(Buffer.from(JSON.stringify(mockData)))
+        )
+        callCount++
+      }
+      return Promise.resolve(0)
+    })
 
     await run()
 
@@ -149,5 +168,78 @@ describe('xcresult-summary action', () => {
       ],
       expect.any(Object)
     )
+    expect(mockExec).toHaveBeenNthCalledWith(
+      2,
+      'xcrun',
+      [
+        'xcresulttool',
+        'get',
+        'test-results',
+        'summary',
+        '--path',
+        testXcresultPath
+      ],
+      expect.any(Object)
+    )
+  })
+
+  test('skips test results command when build fails', async () => {
+    mockGetInput.mockReturnValue(testXcresultPath)
+    mockExec.mockImplementation(async (_, args, options?: exec.ExecOptions) => {
+      if (options?.listeners?.stdout) {
+        await Promise.resolve(
+          options.listeners.stdout(
+            Buffer.from(JSON.stringify(mockFailedBuildResult))
+          )
+        )
+      }
+      return Promise.resolve(0)
+    })
+
+    await run()
+
+    expect(mockExec).toHaveBeenCalledTimes(1)
+    expect(mockExec).toHaveBeenCalledWith(
+      'xcrun',
+      [
+        'xcresulttool',
+        'get',
+        'build-results',
+        'summary',
+        '--path',
+        testXcresultPath
+      ],
+      expect.any(Object)
+    )
+  })
+
+  test('handles build errors without sourceURL', async () => {
+    mockGetInput.mockReturnValue(testXcresultPath)
+    const buildResultWithoutSourceURL = {
+      ...mockFailedBuildResult,
+      errors: [
+        {
+          className: 'DVTTextDocumentLocation',
+          issueType: 'Swift Compiler Error',
+          message: 'Build error without source URL',
+          targetName: 'xcresult-summary-app'
+        }
+      ]
+    }
+
+    mockExec.mockImplementation(async (_, args, options?: exec.ExecOptions) => {
+      if (options?.listeners?.stdout) {
+        await Promise.resolve(
+          options.listeners.stdout(
+            Buffer.from(JSON.stringify(buildResultWithoutSourceURL))
+          )
+        )
+      }
+      return Promise.resolve(0)
+    })
+
+    await run()
+
+    expect(mockExec).toHaveBeenCalledTimes(1)
   })
 })

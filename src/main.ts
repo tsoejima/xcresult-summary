@@ -74,7 +74,7 @@ interface TestResult {
 
 async function getXcresultSummary(path: string): Promise<{
   buildResult: BuildResult
-  testResult: TestResult
+  testResult: TestResult | null
 }> {
   let buildOutput = ''
   let testOutput = ''
@@ -87,68 +87,75 @@ async function getXcresultSummary(path: string): Promise<{
     }
   }
 
-  const testExecOptions: ExecOptions = {
-    listeners: {
-      stdout: (data: Buffer) => {
-        testOutput += data.toString()
-      }
-    }
-  }
-
+  // まずビルド結果を取得
   await exec.exec(
     'xcrun',
     ['xcresulttool', 'get', 'build-results', 'summary', '--path', path],
     execOptions
   )
 
-  await exec.exec(
-    'xcrun',
-    ['xcresulttool', 'get', 'test-results', 'summary', '--path', path],
-    testExecOptions
-  )
-
   let parsedBuildResult: unknown
-  let parsedTestResult: unknown
+  let parsedTestResult: unknown = null
 
   try {
     parsedBuildResult = JSON.parse(buildOutput)
-    parsedTestResult = JSON.parse(testOutput)
   } catch (err) {
     const error =
       err instanceof Error ? err.message : 'Unknown error during JSON parsing'
-    throw new Error(`Failed to parse JSON output: ${error}`)
+    throw new Error(`Failed to parse build result JSON: ${error}`)
   }
 
   if (!isBuildResult(parsedBuildResult)) {
     throw new Error('Invalid build result format')
   }
 
-  if (!isTestResult(parsedTestResult)) {
-    throw new Error('Invalid test result format')
+  // ビルドが成功した場合のみテスト結果を取得
+  if (parsedBuildResult.status !== 'failed') {
+    const testExecOptions: ExecOptions = {
+      listeners: {
+        stdout: (data: Buffer) => {
+          testOutput += data.toString()
+        }
+      }
+    }
+
+    await exec.exec(
+      'xcrun',
+      ['xcresulttool', 'get', 'test-results', 'summary', '--path', path],
+      testExecOptions
+    )
+
+    try {
+      parsedTestResult = JSON.parse(testOutput)
+    } catch (err) {
+      const error =
+        err instanceof Error ? err.message : 'Unknown error during JSON parsing'
+      throw new Error(`Failed to parse test result JSON: ${error}`)
+    }
+
+    if (!isTestResult(parsedTestResult)) {
+      throw new Error('Invalid test result format')
+    }
   }
 
   return {
     buildResult: parsedBuildResult,
-    testResult: parsedTestResult
+    testResult: parsedTestResult as TestResult | null
   }
 }
 
 function generateMarkdownSummary(
   buildResult: BuildResult,
-  testResult: TestResult
+  testResult: TestResult | null
 ): string {
   const buildDuration = (
     (buildResult.endTime - buildResult.startTime) /
     60
   ).toFixed(2)
-  const testDuration = (
-    (testResult.finishTime - testResult.startTime) /
-    60
-  ).toFixed(2)
   let markdown = ''
 
-  // ビルドが失敗した場合はテスト統計を表示しない
-  if (buildResult.status !== 'failed') {
+  // ビルドが失敗していない、かつテスト結果が存在する場合のみテスト統計を表示
+  if (buildResult.status !== 'failed' && testResult !== null) {
     // Test Statistics - 横並びの表
     markdown += '## Test Statistics\n\n'
     markdown +=
@@ -159,7 +166,10 @@ function generateMarkdownSummary(
 
     // Test Results
     markdown += '## Test Results\n\n'
-    markdown += `**Duration**: ${testDuration} minutes\n\n`
+    markdown += `**Duration**: ${(
+      (testResult.finishTime - testResult.startTime) /
+      60
+    ).toFixed(2)} minutes\n\n`
 
     // Test Failures - 表形式
     if (testResult.testFailures.length > 0) {
@@ -200,9 +210,18 @@ function generateMarkdownSummary(
     markdown += '| Location | Error |\n'
     markdown += '|----------|-------|\n'
     buildResult.errors.forEach(error => {
-      const filePath =
-        error.sourceURL.split('/').find(part => part.endsWith('.swift')) ??
-        error.sourceURL
+      const workspacePath = process.env.GITHUB_WORKSPACE || ''
+      let filePath = 'Unknown location'
+
+      if (error.sourceURL) {
+        try {
+          filePath =
+            error.sourceURL.split('#')[0].replace(workspacePath + '/', '') ||
+            'Unknown file'
+        } catch {
+          filePath = error.sourceURL || 'Unknown file'
+        }
+      }
 
       const errorMessage = error.message.replace(/\n/g, '<br>')
       markdown += `| 📍 \`${filePath}\`<br>*${error.issueType}* | ${errorMessage} |\n`
@@ -250,20 +269,26 @@ export async function run(): Promise<void> {
       process.stdout.write(
         `❌ Build failed with ${buildResult.errorCount} errors\n`
       )
-    } else if (testResult.failedTests > 0) {
+    } else if (testResult && testResult.failedTests > 0) {
       process.stdout.write(
         `❌ Tests completed with ${testResult.failedTests} failures\n`
       )
-    } else {
+    } else if (testResult) {
       process.stdout.write('✅ All tests passed successfully\n')
     }
 
     const markdownSummary = generateMarkdownSummary(buildResult, testResult)
 
     // 出力を設定
-    core.setOutput('total-tests', testResult.totalTestCount)
-    core.setOutput('failed-tests', testResult.failedTests)
-    core.setOutput('passed-tests', testResult.passedTests)
+    if (testResult) {
+      core.setOutput('total-tests', testResult.totalTestCount)
+      core.setOutput('failed-tests', testResult.failedTests)
+      core.setOutput('passed-tests', testResult.passedTests)
+    } else {
+      core.setOutput('total-tests', 0)
+      core.setOutput('failed-tests', 0)
+      core.setOutput('passed-tests', 0)
+    }
     core.setOutput('build-status', buildResult.status)
     core.setOutput('error-count', buildResult.errorCount)
     core.setOutput('warning-count', buildResult.warningCount)
