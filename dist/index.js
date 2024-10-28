@@ -25663,7 +25663,8 @@ const exec = __importStar(__nccwpck_require__(5236));
 const fs = __importStar(__nccwpck_require__(9896));
 async function getXcresultSummary(path) {
     let buildOutput = '';
-    let testOutput = '';
+    let testSummaryOutput = '';
+    let testDetailsOutput = '';
     const execOptions = {
         listeners: {
             stdout: (data) => {
@@ -25671,10 +25672,11 @@ async function getXcresultSummary(path) {
             }
         }
     };
-    // まずビルド結果を取得
+    // ビルド結果を取得
     await exec.exec('xcrun', ['xcresulttool', 'get', 'build-results', 'summary', '--path', path], execOptions);
     let parsedBuildResult;
     let parsedTestResult = null;
+    let parsedTestDetails = null;
     try {
         parsedBuildResult = JSON.parse(buildOutput);
     }
@@ -25687,29 +25689,84 @@ async function getXcresultSummary(path) {
     }
     // ビルドが成功した場合のみテスト結果を取得
     if (parsedBuildResult.status !== 'failed') {
-        const testExecOptions = {
+        const testSummaryOptions = {
             listeners: {
                 stdout: (data) => {
-                    testOutput += data.toString();
+                    testSummaryOutput += data.toString();
                 }
             }
         };
-        await exec.exec('xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', path], testExecOptions);
+        const testDetailsOptions = {
+            listeners: {
+                stdout: (data) => {
+                    testDetailsOutput += data.toString();
+                }
+            }
+        };
+        // テスト結果のサマリーを取得
+        await exec.exec('xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', path], testSummaryOptions);
+        // テスト結果の詳細を取得
+        await exec.exec('xcrun', ['xcresulttool', 'get', 'test-results', 'tests', '--path', path], testDetailsOptions);
         try {
-            parsedTestResult = JSON.parse(testOutput);
+            parsedTestResult = JSON.parse(testSummaryOutput);
+            parsedTestDetails = JSON.parse(testDetailsOutput);
         }
         catch (err) {
             const error = err instanceof Error ? err.message : 'Unknown error during JSON parsing';
             throw new Error(`Failed to parse test result JSON: ${error}`);
         }
-        if (!isTestResult(parsedTestResult)) {
+        if (!isTestResult(parsedTestResult) ||
+            !isDetailedTestResult(parsedTestDetails)) {
             throw new Error('Invalid test result format');
+        }
+        // テスト結果に詳細な失敗情報を追加
+        if (parsedTestResult.testFailures) {
+            parsedTestResult.testFailures = extractTestFailures(parsedTestDetails);
         }
     }
     return {
         buildResult: parsedBuildResult,
         testResult: parsedTestResult
     };
+}
+function extractTestFailures(details) {
+    const failures = [];
+    function traverseNodes(nodes) {
+        for (const node of nodes) {
+            if (node.nodeType === 'Test Case' && node.result === 'Failed') {
+                const failure = {
+                    testName: node.name,
+                    failureText: node.children?.[0]?.name || 'Unknown failure',
+                    sourceCodeContext: {
+                        location: extractLocationFromFailureMessage(node.children?.[0]?.name || '')
+                    }
+                };
+                failures.push(failure);
+            }
+            if (node.children) {
+                traverseNodes(node.children);
+            }
+        }
+    }
+    traverseNodes(details.testNodes);
+    return failures;
+}
+function extractLocationFromFailureMessage(message) {
+    const match = message.match(/([^:]+\.swift):(\d+):/);
+    if (match) {
+        return {
+            filePath: match[1],
+            lineNumber: parseInt(match[2], 10)
+        };
+    }
+    return {};
+}
+function isDetailedTestResult(value) {
+    return (typeof value === 'object' &&
+        value !== null &&
+        'testNodes' in value &&
+        'devices' in value &&
+        'testPlanConfigurations' in value);
 }
 function generateMarkdownSummary(buildResult, testResult) {
     const buildDuration = ((buildResult.endTime - buildResult.startTime) /

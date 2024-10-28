@@ -62,20 +62,51 @@ export interface TestResult {
   result: string
   skippedTests: number
   startTime: number
-  testFailures?: {
-    failureText?: string
-    targetName?: string
-    testIdentifier?: number
-    testName?: string
-    sourceCodeContext?: {
-      location?: {
-        filePath?: string
-        lineNumber?: number
-      }
-    }
-  }[]
+  testFailures?: TestFailure[]
   title: string
   totalTestCount: number
+}
+
+interface TestNode {
+  children?: TestNode[]
+  duration?: string
+  name: string
+  nodeIdentifier?: string
+  nodeType: string
+  result: string
+}
+
+interface TestDevice {
+  architecture: string
+  deviceId: string
+  deviceName: string
+  modelName: string
+  osVersion: string
+  platform: string
+}
+
+interface TestPlanConfiguration {
+  configurationId: string
+  configurationName: string
+}
+
+interface DetailedTestResult {
+  devices: TestDevice[]
+  testNodes: TestNode[]
+  testPlanConfigurations: TestPlanConfiguration[]
+}
+
+interface TestFailure {
+  failureText?: string
+  targetName?: string
+  testIdentifier?: number
+  testName?: string
+  sourceCodeContext?: {
+    location?: {
+      filePath?: string
+      lineNumber?: number
+    }
+  }
 }
 
 export interface XcresultSummaryResult {
@@ -87,7 +118,8 @@ export async function getXcresultSummary(
   path: string
 ): Promise<XcresultSummaryResult> {
   let buildOutput = ''
-  let testOutput = ''
+  let testSummaryOutput = ''
+  let testDetailsOutput = ''
 
   const execOptions: ExecOptions = {
     listeners: {
@@ -97,7 +129,7 @@ export async function getXcresultSummary(
     }
   }
 
-  // まずビルド結果を取得
+  // ビルド結果を取得
   await exec.exec(
     'xcrun',
     ['xcresulttool', 'get', 'build-results', 'summary', '--path', path],
@@ -106,6 +138,7 @@ export async function getXcresultSummary(
 
   let parsedBuildResult: unknown
   let parsedTestResult: unknown = null
+  let parsedTestDetails: unknown = null
 
   try {
     parsedBuildResult = JSON.parse(buildOutput)
@@ -121,30 +154,55 @@ export async function getXcresultSummary(
 
   // ビルドが成功した場合のみテスト結果を取得
   if (parsedBuildResult.status !== 'failed') {
-    const testExecOptions: ExecOptions = {
+    const testSummaryOptions: ExecOptions = {
       listeners: {
         stdout: (data: Buffer): void => {
-          testOutput += data.toString()
+          testSummaryOutput += data.toString()
         }
       }
     }
 
+    const testDetailsOptions: ExecOptions = {
+      listeners: {
+        stdout: (data: Buffer): void => {
+          testDetailsOutput += data.toString()
+        }
+      }
+    }
+
+    // テスト結果のサマリーを取得
     await exec.exec(
       'xcrun',
       ['xcresulttool', 'get', 'test-results', 'summary', '--path', path],
-      testExecOptions
+      testSummaryOptions
+    )
+
+    // テスト結果の詳細を取得
+    await exec.exec(
+      'xcrun',
+      ['xcresulttool', 'get', 'test-results', 'tests', '--path', path],
+      testDetailsOptions
     )
 
     try {
-      parsedTestResult = JSON.parse(testOutput)
+      parsedTestResult = JSON.parse(testSummaryOutput)
+      parsedTestDetails = JSON.parse(testDetailsOutput)
     } catch (err) {
       const error =
         err instanceof Error ? err.message : 'Unknown error during JSON parsing'
       throw new Error(`Failed to parse test result JSON: ${error}`)
     }
 
-    if (!isTestResult(parsedTestResult)) {
+    if (
+      !isTestResult(parsedTestResult) ||
+      !isDetailedTestResult(parsedTestDetails)
+    ) {
       throw new Error('Invalid test result format')
+    }
+
+    // テスト結果に詳細な失敗情報を追加
+    if (parsedTestResult.testFailures) {
+      parsedTestResult.testFailures = extractTestFailures(parsedTestDetails)
     }
   }
 
@@ -152,6 +210,57 @@ export async function getXcresultSummary(
     buildResult: parsedBuildResult,
     testResult: parsedTestResult as TestResult | null
   }
+}
+
+function extractTestFailures(details: DetailedTestResult): TestFailure[] {
+  const failures: TestFailure[] = []
+
+  function traverseNodes(nodes: TestNode[]): void {
+    for (const node of nodes) {
+      if (node.nodeType === 'Test Case' && node.result === 'Failed') {
+        const failure: TestFailure = {
+          testName: node.name,
+          failureText: node.children?.[0]?.name || 'Unknown failure',
+          sourceCodeContext: {
+            location: extractLocationFromFailureMessage(
+              node.children?.[0]?.name || ''
+            )
+          }
+        }
+        failures.push(failure)
+      }
+      if (node.children) {
+        traverseNodes(node.children)
+      }
+    }
+  }
+
+  traverseNodes(details.testNodes)
+  return failures
+}
+
+function extractLocationFromFailureMessage(message: string): {
+  filePath?: string
+  lineNumber?: number
+} {
+  const match = message.match(/([^:]+\.swift):(\d+):/)
+  if (match) {
+    return {
+      filePath: match[1],
+      lineNumber: parseInt(match[2], 10)
+    }
+  }
+  return {}
+}
+
+function isDetailedTestResult(value: unknown): value is DetailedTestResult {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'testNodes' in value &&
+    'devices' in value &&
+    'testPlanConfigurations' in value
+  )
 }
 
 export function generateMarkdownSummary(
