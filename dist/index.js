@@ -25655,6 +25655,8 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.getXcresultSummary = getXcresultSummary;
+exports.generateMarkdownSummary = generateMarkdownSummary;
 exports.run = run;
 const core = __importStar(__nccwpck_require__(7484));
 const exec = __importStar(__nccwpck_require__(5236));
@@ -25692,7 +25694,7 @@ async function getXcresultSummary(path) {
                 }
             }
         };
-        await exec.exec('xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', path], testExecOptions);
+        await exec.exec('xcrun', ['xcresulttool', 'get', '--format', 'json', '--path', path], testExecOptions);
         try {
             parsedTestResult = JSON.parse(testOutput);
         }
@@ -25729,13 +25731,21 @@ function generateMarkdownSummary(buildResult, testResult) {
         // Test Failures - 表形式
         if (testResult.testFailures && testResult.testFailures.length > 0) {
             markdown += '### ❌ Test Failures\n\n';
-            markdown += '| Test | Details |\n';
-            markdown += '|------|----------|\n';
+            markdown += '| Test | Location | Details |\n';
+            markdown += '|------|----------|----------|\n';
             testResult.testFailures.forEach(failure => {
                 const testName = failure.testName || 'Unknown Test';
                 const targetName = failure.targetName || 'Unknown Target';
                 const failureText = (failure.failureText || 'No failure details').replace(/\n/g, '<br>');
-                markdown += `| **${testName}**<br>*${targetName}* | ${failureText} |\n`;
+                let location = 'Unknown location';
+                if (failure.sourceCodeContext?.location) {
+                    const workspacePath = process.env.GITHUB_WORKSPACE || '';
+                    const filePath = failure.sourceCodeContext.location.filePath || '';
+                    const lineNumber = failure.sourceCodeContext.location.lineNumber;
+                    const relativePath = filePath.replace(workspacePath + '/', '');
+                    location = lineNumber ? `${relativePath}:${lineNumber}` : relativePath;
+                }
+                markdown += `| **${testName}**<br>*${targetName}* | 📍 \`${location}\` | ${failureText} |\n`;
             });
             markdown += '\n';
         }
@@ -25777,14 +25787,8 @@ function generateMarkdownSummary(buildResult, testResult) {
             const workspacePath = process.env.GITHUB_WORKSPACE || '';
             let filePath = 'Unknown location';
             if (error.sourceURL) {
-                try {
-                    filePath =
-                        error.sourceURL.split('#')[0].replace(workspacePath + '/', '') ||
-                            'Unknown file';
-                }
-                catch {
-                    filePath = error.sourceURL || 'Unknown file';
-                }
+                const url = error.sourceURL.split('#')[0];
+                filePath = url.replace(workspacePath + '/', '') || 'Unknown file';
             }
             const errorMessage = (error.message || 'Unknown error').replace(/\n/g, '<br>');
             const issueType = error.issueType || 'Unknown issue';
@@ -25794,12 +25798,12 @@ function generateMarkdownSummary(buildResult, testResult) {
     }
     // Warning Count
     if (buildResult.warningCount > 0) {
-        markdown += `### ⚠️ Warnings\n\n`;
+        markdown += '### ⚠️ Warnings\n\n';
         markdown += `Total Warnings: ${buildResult.warningCount}\n\n`;
     }
     // Analyzer Warning Count
     if (buildResult.analyzerWarningCount > 0) {
-        markdown += `### 🔍 Analyzer Warnings\n\n`;
+        markdown += '### 🔍 Analyzer Warnings\n\n';
         markdown += `Total Analyzer Warnings: ${buildResult.analyzerWarningCount}\n\n`;
     }
     return markdown;

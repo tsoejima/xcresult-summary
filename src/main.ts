@@ -9,7 +9,7 @@ interface ExecOptions extends exec.ExecOptions {
   }
 }
 
-interface BuildResult {
+export interface BuildResult {
   analyzerWarningCount: number
   analyzerWarnings: unknown[]
   destination?: {
@@ -35,7 +35,7 @@ interface BuildResult {
   warnings: unknown[]
 }
 
-interface TestResult {
+export interface TestResult {
   devicesAndConfigurations?: {
     device?: {
       architecture: string
@@ -67,21 +67,31 @@ interface TestResult {
     targetName?: string
     testIdentifier?: number
     testName?: string
+    sourceCodeContext?: {
+      location?: {
+        filePath?: string
+        lineNumber?: number
+      }
+    }
   }[]
   title: string
   totalTestCount: number
 }
 
-async function getXcresultSummary(path: string): Promise<{
+export interface XcresultSummaryResult {
   buildResult: BuildResult
   testResult: TestResult | null
-}> {
+}
+
+export async function getXcresultSummary(
+  path: string
+): Promise<XcresultSummaryResult> {
   let buildOutput = ''
   let testOutput = ''
 
   const execOptions: ExecOptions = {
     listeners: {
-      stdout: (data: Buffer) => {
+      stdout: (data: Buffer): void => {
         buildOutput += data.toString()
       }
     }
@@ -113,7 +123,7 @@ async function getXcresultSummary(path: string): Promise<{
   if (parsedBuildResult.status !== 'failed') {
     const testExecOptions: ExecOptions = {
       listeners: {
-        stdout: (data: Buffer) => {
+        stdout: (data: Buffer): void => {
           testOutput += data.toString()
         }
       }
@@ -121,7 +131,7 @@ async function getXcresultSummary(path: string): Promise<{
 
     await exec.exec(
       'xcrun',
-      ['xcresulttool', 'get', 'test-results', 'summary', '--path', path],
+      ['xcresulttool', 'get', '--format', 'json', '--path', path],
       testExecOptions
     )
 
@@ -144,7 +154,7 @@ async function getXcresultSummary(path: string): Promise<{
   }
 }
 
-function generateMarkdownSummary(
+export function generateMarkdownSummary(
   buildResult: BuildResult,
   testResult: TestResult | null
 ): string {
@@ -174,15 +184,25 @@ function generateMarkdownSummary(
     // Test Failures - 表形式
     if (testResult.testFailures && testResult.testFailures.length > 0) {
       markdown += '### ❌ Test Failures\n\n'
-      markdown += '| Test | Details |\n'
-      markdown += '|------|----------|\n'
+      markdown += '| Test | Location | Details |\n'
+      markdown += '|------|----------|----------|\n'
       testResult.testFailures.forEach(failure => {
         const testName = failure.testName || 'Unknown Test'
         const targetName = failure.targetName || 'Unknown Target'
         const failureText = (
           failure.failureText || 'No failure details'
         ).replace(/\n/g, '<br>')
-        markdown += `| **${testName}**<br>*${targetName}* | ${failureText} |\n`
+
+        let location = 'Unknown location'
+        if (failure.sourceCodeContext?.location) {
+          const workspacePath = process.env.GITHUB_WORKSPACE || ''
+          const filePath = failure.sourceCodeContext.location.filePath || ''
+          const lineNumber = failure.sourceCodeContext.location.lineNumber
+          const relativePath = filePath.replace(workspacePath + '/', '')
+          location = lineNumber ? `${relativePath}:${lineNumber}` : relativePath
+        }
+
+        markdown += `| **${testName}**<br>*${targetName}* | 📍 \`${location}\` | ${failureText} |\n`
       })
       markdown += '\n'
     }
@@ -232,13 +252,8 @@ function generateMarkdownSummary(
       let filePath = 'Unknown location'
 
       if (error.sourceURL) {
-        try {
-          filePath =
-            error.sourceURL.split('#')[0].replace(workspacePath + '/', '') ||
-            'Unknown file'
-        } catch {
-          filePath = error.sourceURL || 'Unknown file'
-        }
+        const url = error.sourceURL.split('#')[0]
+        filePath = url.replace(workspacePath + '/', '') || 'Unknown file'
       }
 
       const errorMessage = (error.message || 'Unknown error').replace(
@@ -253,13 +268,13 @@ function generateMarkdownSummary(
 
   // Warning Count
   if (buildResult.warningCount > 0) {
-    markdown += `### ⚠️ Warnings\n\n`
+    markdown += '### ⚠️ Warnings\n\n'
     markdown += `Total Warnings: ${buildResult.warningCount}\n\n`
   }
 
   // Analyzer Warning Count
   if (buildResult.analyzerWarningCount > 0) {
-    markdown += `### 🔍 Analyzer Warnings\n\n`
+    markdown += '### 🔍 Analyzer Warnings\n\n'
     markdown += `Total Analyzer Warnings: ${buildResult.analyzerWarningCount}\n\n`
   }
 
