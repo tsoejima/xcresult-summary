@@ -1,5 +1,9 @@
 # xcresult-summary
 
+![Build Status](https://github.com/tsoejima/xcresult-summary/workflows/CI/badge.svg)
+![Release](https://img.shields.io/github/v/release/tsoejima/xcresult-summary)
+![License](https://img.shields.io/github/license/tsoejima/xcresult-summary)
+
 This action extracts a summary of test successes and failures from Xcode test results (.xcresult) and generates a summary in Markdown format. This allows you to easily view test results within your CI/CD pipeline.
 
 ## Prerequisites
