@@ -82,8 +82,8 @@ describe('generateMarkdownSummary', () => {
     expect(markdown).toContain('**Duration**: 3.00 minutes\n\n')
 
     expect(markdown).toContain('### ❌ Test Failures\n\n')
-    expect(markdown).toContain('| Test | Location | Details |')
-    expect(markdown).toContain('|------|----------|----------|')
+    expect(markdown).toContain('| Location | Details |')
+    expect(markdown).toContain('|----------|----------|')
     expect(markdown).toContain('| `path/to/test.swift:42` | Test failed |')
 
     expect(markdown).toContain('### 📱 Device Results\n\n')
@@ -225,8 +225,8 @@ describe('generateMarkdownSummary', () => {
     const markdown = generateMarkdownSummary(buildResult, testResult)
 
     expect(markdown).toContain('### ❌ Test Failures\n\n')
-    expect(markdown).toContain('| Test | Location | Details |')
-    expect(markdown).toContain('|------|----------|----------|')
+    expect(markdown).toContain('| Location | Details |')
+    expect(markdown).toContain('|----------|----------|')
     expect(markdown).toContain(
       '| `Unknown location` | Test failed without location |'
     )

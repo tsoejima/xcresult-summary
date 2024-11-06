@@ -23,8 +23,8 @@ export function generateMarkdownSummary(
 
     if (testResult.testFailures && testResult.testFailures.length > 0) {
       markdown += '### ❌ Test Failures\n\n'
-      markdown += '| Test | Location | Details |\n'
-      markdown += '|------|----------|----------|\n'
+      markdown += '| Location | Details |\n'
+      markdown += '|----------|----------|\n'
       testResult.testFailures.forEach(failure => {
         const failureText = (
           failure.failureText || 'No failure details'
