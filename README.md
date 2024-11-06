@@ -1,6 +1,5 @@
 # xcresult-summary
 
-![Build Status](https://github.com/tsoejima/xcresult-summary/workflows/CI/badge.svg)
 ![Release](https://img.shields.io/github/v/release/tsoejima/xcresult-summary)
 ![License](https://img.shields.io/github/license/tsoejima/xcresult-summary)
 
