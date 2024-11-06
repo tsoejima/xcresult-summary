@@ -25655,79 +25655,186 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.getXcresultSummary = getXcresultSummary;
-exports.generateMarkdownSummary = generateMarkdownSummary;
+exports.generateMarkdownSummary = exports.getXcresultSummary = void 0;
 exports.run = run;
 const core = __importStar(__nccwpck_require__(7484));
-const exec = __importStar(__nccwpck_require__(5236));
 const fs = __importStar(__nccwpck_require__(9896));
-async function getXcresultSummary(path) {
-    let buildOutput = '';
-    let testSummaryOutput = '';
-    let testDetailsOutput = '';
-    const execOptions = {
-        listeners: {
-            stdout: (data) => {
-                buildOutput += data.toString();
-            }
-        }
-    };
-    // ビルド結果を取得
-    await exec.exec('xcrun', ['xcresulttool', 'get', 'build-results', 'summary', '--path', path], execOptions);
-    let parsedBuildResult;
-    let parsedTestResult = null;
-    let parsedTestDetails = null;
+const xcresult_parser_1 = __nccwpck_require__(1167);
+Object.defineProperty(exports, "getXcresultSummary", ({ enumerable: true, get: function () { return xcresult_parser_1.getXcresultSummary; } }));
+const markdown_generator_1 = __nccwpck_require__(4218);
+Object.defineProperty(exports, "generateMarkdownSummary", ({ enumerable: true, get: function () { return markdown_generator_1.generateMarkdownSummary; } }));
+async function run() {
     try {
-        parsedBuildResult = JSON.parse(buildOutput);
+        const xcresultPath = core.getInput('xcresult-path');
+        if (!fs.existsSync(xcresultPath)) {
+            throw new Error(`xcresult file not found at path: ${xcresultPath}`);
+        }
+        process.stdout.write('🔍 Analyzing xcresult...\n');
+        const { buildResult, testResult } = await (0, xcresult_parser_1.getXcresultSummary)(xcresultPath);
+        if (buildResult.errorCount > 0) {
+            process.stdout.write(`❌ Build failed with ${buildResult.errorCount} errors\n`);
+        }
+        else if (testResult && testResult.failedTests > 0) {
+            process.stdout.write(`❌ Tests completed with ${testResult.failedTests} failures\n`);
+        }
+        else if (testResult) {
+            process.stdout.write('✅ All tests passed successfully\n');
+        }
+        const markdownSummary = (0, markdown_generator_1.generateMarkdownSummary)(buildResult, testResult);
+        if (testResult) {
+            core.setOutput('total-tests', testResult.totalTestCount);
+            core.setOutput('failed-tests', testResult.failedTests);
+            core.setOutput('passed-tests', testResult.passedTests);
+        }
+        else {
+            core.setOutput('total-tests', 0);
+            core.setOutput('failed-tests', 0);
+            core.setOutput('passed-tests', 0);
+        }
+        core.setOutput('build-status', buildResult.status);
+        core.setOutput('error-count', buildResult.errorCount);
+        core.setOutput('warning-count', buildResult.warningCount);
+        await core.summary.addRaw(markdownSummary).write();
     }
-    catch (err) {
-        const error = err instanceof Error ? err.message : 'Unknown error during JSON parsing';
-        throw new Error(`Failed to parse build result JSON: ${error}`);
+    catch (error) {
+        if (error instanceof Error) {
+            process.stderr.write(`❌ Error: ${error.message}\n`);
+            await core.summary
+                .addHeading('Error')
+                .addRaw(`❌ ${error.message}`)
+                .write();
+            core.setFailed(error.message);
+        }
     }
-    if (!isBuildResult(parsedBuildResult)) {
-        throw new Error('Invalid build result format');
-    }
-    // ビルドが成功した場合のみテスト結果を取得
-    if (parsedBuildResult.status !== 'failed') {
-        const testSummaryOptions = {
-            listeners: {
-                stdout: (data) => {
-                    testSummaryOutput += data.toString();
+}
+
+
+/***/ }),
+
+/***/ 4218:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.generateMarkdownSummary = generateMarkdownSummary;
+function generateMarkdownSummary(buildResult, testResult) {
+    const buildDuration = ((buildResult.endTime - buildResult.startTime) /
+        60).toFixed(2);
+    let markdown = '';
+    if (buildResult.status !== 'failed' && testResult !== null) {
+        markdown += '## Test Statistics\n\n';
+        markdown +=
+            '| ✅ Passed | ❌ Failed | ⏭️ Skipped | 🔄 Expected | 📊 Total |\n';
+        markdown +=
+            '|-----------|-----------|------------|-------------|----------|\n';
+        markdown += `| ${testResult.passedTests} | ${testResult.failedTests} | ${testResult.skippedTests} | ${testResult.expectedFailures} | ${testResult.totalTestCount} |\n\n`;
+        markdown += '## Test Results\n\n';
+        markdown += `**Duration**: ${((testResult.finishTime - testResult.startTime) / 60).toFixed(2)} minutes\n\n`;
+        if (testResult.testFailures && testResult.testFailures.length > 0) {
+            markdown += '### ❌ Test Failures\n\n';
+            markdown += '| Test | Location | Details |\n';
+            markdown += '|------|----------|----------|\n';
+            testResult.testFailures.forEach(failure => {
+                const failureText = (failure.failureText || 'No failure details').replace(/\n/g, '<br>');
+                let location = 'Unknown location';
+                if (failure.sourceCodeContext?.location) {
+                    const workspacePath = process.env.GITHUB_WORKSPACE || '';
+                    const filePath = failure.sourceCodeContext.location.filePath || '';
+                    const lineNumber = failure.sourceCodeContext.location.lineNumber;
+                    const relativePath = filePath.replace(workspacePath + '/', '');
+                    location = lineNumber ? `${relativePath}:${lineNumber}` : relativePath;
                 }
-            }
-        };
-        const testDetailsOptions = {
-            listeners: {
-                stdout: (data) => {
-                    testDetailsOutput += data.toString();
+                markdown += `| \`${location}\` | ${failureText} |\n`;
+            });
+            markdown += '\n';
+        }
+        if (testResult.devicesAndConfigurations &&
+            testResult.devicesAndConfigurations.length > 0) {
+            markdown += '### 📱 Device Results\n\n';
+            markdown += '| Device | Passed | Failed | Skipped | Configuration |\n';
+            markdown += '|---------|---------|---------|----------|---------------|\n';
+            testResult.devicesAndConfigurations.forEach(config => {
+                if (config.device) {
+                    const deviceName = config.device.deviceName || 'Unknown Device';
+                    const platform = config.device.platform || 'Unknown Platform';
+                    const configName = config.testPlanConfiguration?.configurationName ||
+                        'Default Configuration';
+                    markdown += `| ${deviceName}<br>(${platform}) | ✅ ${config.passedTests} | ❌ ${config.failedTests} | ⏭️ ${config.skippedTests} | ${configName} |\n`;
                 }
-            }
-        };
-        // テスト結果のサマリーを取得
-        await exec.exec('xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', path], testSummaryOptions);
-        // テスト結果の詳細を取得
-        await exec.exec('xcrun', ['xcresulttool', 'get', 'test-results', 'tests', '--path', path], testDetailsOptions);
-        try {
-            parsedTestResult = JSON.parse(testSummaryOutput);
-            parsedTestDetails = JSON.parse(testDetailsOutput);
-        }
-        catch (err) {
-            const error = err instanceof Error ? err.message : 'Unknown error during JSON parsing';
-            throw new Error(`Failed to parse test result JSON: ${error}`);
-        }
-        if (!isTestResult(parsedTestResult) ||
-            !isDetailedTestResult(parsedTestDetails)) {
-            throw new Error('Invalid test result format');
-        }
-        // テスト結果に詳細な失敗情報を追加
-        if (parsedTestResult.testFailures) {
-            parsedTestResult.testFailures = extractTestFailures(parsedTestDetails);
+            });
+            markdown += '\n';
         }
     }
-    return {
-        buildResult: parsedBuildResult,
-        testResult: parsedTestResult
-    };
+    markdown += '## Build Results\n\n';
+    markdown += `**Status**: ${buildResult.status === 'failed' ? '❌ Failed' : '✅ Passed'}\n`;
+    markdown += `**Duration**: ${buildDuration} minutes\n\n`;
+    if (buildResult.destination) {
+        markdown += '### Environment\n';
+        markdown += `- 📱 Device: ${buildResult.destination.deviceName || 'Unknown'}\n`;
+        markdown += `- 🖥️ Platform: ${buildResult.destination.platform || 'Unknown'}\n`;
+        markdown += `- 📦 OS Version: ${buildResult.destination.osVersion || 'Unknown'}\n\n`;
+    }
+    if (buildResult.errorCount > 0 && buildResult.errors) {
+        markdown += '### ❌ Build Errors\n\n';
+        markdown += '| Location | Error |\n';
+        markdown += '|----------|-------|\n';
+        buildResult.errors.forEach(error => {
+            const workspacePath = process.env.GITHUB_WORKSPACE || '';
+            let filePath = 'Unknown location';
+            if (error.sourceURL) {
+                const url = error.sourceURL.split('#')[0];
+                filePath = url.replace(workspacePath + '/', '') || 'Unknown file';
+            }
+            const errorMessage = (error.message || 'Unknown error').replace(/\n/g, '<br>');
+            markdown += `| 📍 \`${filePath}\`| ${errorMessage} |\n`;
+        });
+        markdown += '\n';
+    }
+    if (buildResult.warningCount > 0) {
+        markdown += '### ⚠️ Warnings\n\n';
+        markdown += `Total Warnings: ${buildResult.warningCount}\n\n`;
+    }
+    if (buildResult.analyzerWarningCount > 0) {
+        markdown += '### 🔍 Analyzer Warnings\n\n';
+        markdown += `Total Analyzer Warnings: ${buildResult.analyzerWarningCount}\n\n`;
+    }
+    return markdown;
+}
+
+
+/***/ }),
+
+/***/ 1798:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.isBuildResult = isBuildResult;
+exports.isTestResult = isTestResult;
+exports.isDetailedTestResult = isDetailedTestResult;
+exports.extractTestFailures = extractTestFailures;
+function isBuildResult(value) {
+    return (typeof value === 'object' &&
+        value !== null &&
+        'status' in value &&
+        'errorCount' in value &&
+        'warningCount' in value);
+}
+function isTestResult(value) {
+    return (typeof value === 'object' &&
+        value !== null &&
+        'result' in value &&
+        'totalTestCount' in value &&
+        'failedTests' in value);
+}
+function isDetailedTestResult(value) {
+    return (typeof value === 'object' &&
+        value !== null &&
+        'testNodes' in value &&
+        'devices' in value &&
+        'testPlanConfigurations' in value);
 }
 function extractTestFailures(details) {
     const failures = [];
@@ -25761,170 +25868,105 @@ function extractLocationFromFailureMessage(message) {
     }
     return {};
 }
-function isDetailedTestResult(value) {
-    return (typeof value === 'object' &&
-        value !== null &&
-        'testNodes' in value &&
-        'devices' in value &&
-        'testPlanConfigurations' in value);
-}
-function generateMarkdownSummary(buildResult, testResult) {
-    const buildDuration = ((buildResult.endTime - buildResult.startTime) /
-        60).toFixed(2);
-    let markdown = '';
-    // ビルドが失敗していない、かつテスト結果が存在する場合のみテスト統計を表示
-    if (buildResult.status !== 'failed' && testResult !== null) {
-        // Test Statistics - 横並びの表
-        markdown += '## Test Statistics\n\n';
-        markdown +=
-            '| ✅ Passed | ❌ Failed | ⏭️ Skipped | 🔄 Expected | 📊 Total |\n';
-        markdown +=
-            '|-----------|-----------|------------|-------------|----------|\n';
-        markdown += `| ${testResult.passedTests} | ${testResult.failedTests} | ${testResult.skippedTests} | ${testResult.expectedFailures} | ${testResult.totalTestCount} |\n\n`;
-        // Test Results
-        markdown += '## Test Results\n\n';
-        markdown += `**Duration**: ${((testResult.finishTime - testResult.startTime) /
-            60).toFixed(2)} minutes\n\n`;
-        // Test Failures - 表形式
-        if (testResult.testFailures && testResult.testFailures.length > 0) {
-            markdown += '### ❌ Test Failures\n\n';
-            markdown += '| Test | Location | Details |\n';
-            markdown += '|------|----------|----------|\n';
-            testResult.testFailures.forEach(failure => {
-                const testName = failure.testName || 'Unknown Test';
-                const targetName = failure.targetName || 'Unknown Target';
-                const failureText = (failure.failureText || 'No failure details').replace(/\n/g, '<br>');
-                let location = 'Unknown location';
-                if (failure.sourceCodeContext?.location) {
-                    const workspacePath = process.env.GITHUB_WORKSPACE || '';
-                    const filePath = failure.sourceCodeContext.location.filePath || '';
-                    const lineNumber = failure.sourceCodeContext.location.lineNumber;
-                    const relativePath = filePath.replace(workspacePath + '/', '');
-                    location = lineNumber ? `${relativePath}:${lineNumber}` : relativePath;
-                }
-                markdown += `| **${testName}**<br>*${targetName}* | 📍 \`${location}\` | ${failureText} |\n`;
-            });
-            markdown += '\n';
-        }
-        // Device Results - 表形式
-        if (testResult.devicesAndConfigurations &&
-            testResult.devicesAndConfigurations.length > 0) {
-            markdown += '### 📱 Device Results\n\n';
-            markdown += '| Device | Passed | Failed | Skipped | Configuration |\n';
-            markdown += '|---------|---------|---------|----------|---------------|\n';
-            testResult.devicesAndConfigurations.forEach(config => {
-                if (config.device) {
-                    const deviceName = config.device.deviceName || 'Unknown Device';
-                    const platform = config.device.platform || 'Unknown Platform';
-                    const configName = config.testPlanConfiguration?.configurationName ||
-                        'Default Configuration';
-                    markdown += `| ${deviceName}<br>(${platform}) | ✅ ${config.passedTests} | ❌ ${config.failedTests} | ⏭️ ${config.skippedTests} | ${configName} |\n`;
-                }
-            });
-            markdown += '\n';
-        }
+
+
+/***/ }),
+
+/***/ 1167:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
     }
-    // Build Results
-    markdown += '## Build Results\n\n';
-    markdown += `**Status**: ${buildResult.status === 'failed' ? '❌ Failed' : '✅ Passed'}\n`;
-    markdown += `**Duration**: ${buildDuration} minutes\n\n`;
-    // Environment情報が存在する場合のみ表示
-    if (buildResult.destination) {
-        markdown += '### Environment\n';
-        markdown += `- 📱 Device: ${buildResult.destination.deviceName || 'Unknown'}\n`;
-        markdown += `- 🖥️ Platform: ${buildResult.destination.platform || 'Unknown'}\n`;
-        markdown += `- 📦 OS Version: ${buildResult.destination.osVersion || 'Unknown'}\n\n`;
-    }
-    // Build Errors
-    if (buildResult.errorCount > 0 && buildResult.errors) {
-        markdown += '### ❌ Build Errors\n\n';
-        markdown += '| Location | Error |\n';
-        markdown += '|----------|-------|\n';
-        buildResult.errors.forEach(error => {
-            const workspacePath = process.env.GITHUB_WORKSPACE || '';
-            let filePath = 'Unknown location';
-            if (error.sourceURL) {
-                const url = error.sourceURL.split('#')[0];
-                filePath = url.replace(workspacePath + '/', '') || 'Unknown file';
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.getXcresultSummary = getXcresultSummary;
+const exec = __importStar(__nccwpck_require__(5236));
+const utils = __importStar(__nccwpck_require__(1798));
+async function getXcresultSummary(path) {
+    let buildOutput = '';
+    let testSummaryOutput = '';
+    let testDetailsOutput = '';
+    const execOptions = {
+        listeners: {
+            stdout: (data) => {
+                buildOutput += data.toString();
             }
-            const errorMessage = (error.message || 'Unknown error').replace(/\n/g, '<br>');
-            markdown += `| 📍 \`${filePath}\`| ${errorMessage} |\n`;
-        });
-        markdown += '\n';
-    }
-    // Warning Count
-    if (buildResult.warningCount > 0) {
-        markdown += '### ⚠️ Warnings\n\n';
-        markdown += `Total Warnings: ${buildResult.warningCount}\n\n`;
-    }
-    // Analyzer Warning Count
-    if (buildResult.analyzerWarningCount > 0) {
-        markdown += '### 🔍 Analyzer Warnings\n\n';
-        markdown += `Total Analyzer Warnings: ${buildResult.analyzerWarningCount}\n\n`;
-    }
-    return markdown;
-}
-// Type guards
-function isBuildResult(value) {
-    return (typeof value === 'object' &&
-        value !== null &&
-        'status' in value &&
-        'errorCount' in value &&
-        'warningCount' in value);
-}
-function isTestResult(value) {
-    return (typeof value === 'object' &&
-        value !== null &&
-        'result' in value &&
-        'totalTestCount' in value &&
-        'failedTests' in value);
-}
-async function run() {
+        }
+    };
+    await exec.exec('xcrun', ['xcresulttool', 'get', 'build-results', 'summary', '--path', path], execOptions);
+    let parsedBuildResult;
+    let parsedTestResult = null;
+    let parsedTestDetails = null;
     try {
-        const xcresultPath = core.getInput('xcresult-path');
-        if (!fs.existsSync(xcresultPath)) {
-            throw new Error(`xcresult file not found at path: ${xcresultPath}`);
-        }
-        process.stdout.write('🔍 Analyzing xcresult...\n');
-        const { buildResult, testResult } = await getXcresultSummary(xcresultPath);
-        // 結果の概要を出力
-        if (buildResult.errorCount > 0) {
-            process.stdout.write(`❌ Build failed with ${buildResult.errorCount} errors\n`);
-        }
-        else if (testResult && testResult.failedTests > 0) {
-            process.stdout.write(`❌ Tests completed with ${testResult.failedTests} failures\n`);
-        }
-        else if (testResult) {
-            process.stdout.write('✅ All tests passed successfully\n');
-        }
-        const markdownSummary = generateMarkdownSummary(buildResult, testResult);
-        // 出力を設定
-        if (testResult) {
-            core.setOutput('total-tests', testResult.totalTestCount);
-            core.setOutput('failed-tests', testResult.failedTests);
-            core.setOutput('passed-tests', testResult.passedTests);
-        }
-        else {
-            core.setOutput('total-tests', 0);
-            core.setOutput('failed-tests', 0);
-            core.setOutput('passed-tests', 0);
-        }
-        core.setOutput('build-status', buildResult.status);
-        core.setOutput('error-count', buildResult.errorCount);
-        core.setOutput('warning-count', buildResult.warningCount);
-        // Summaryを作成
-        await core.summary.addRaw(markdownSummary).write();
+        parsedBuildResult = JSON.parse(buildOutput);
     }
-    catch (error) {
-        if (error instanceof Error) {
-            process.stderr.write(`❌ Error: ${error.message}\n`);
-            await core.summary
-                .addHeading('Error')
-                .addRaw(`❌ ${error.message}`)
-                .write();
-            core.setFailed(error.message);
+    catch (err) {
+        const error = err instanceof Error ? err.message : 'Unknown error during JSON parsing';
+        throw new Error(`Failed to parse build result JSON: ${error}`);
+    }
+    if (!utils.isBuildResult(parsedBuildResult)) {
+        throw new Error('Invalid build result format');
+    }
+    if (parsedBuildResult.status !== 'failed') {
+        const testSummaryOptions = {
+            listeners: {
+                stdout: (data) => {
+                    testSummaryOutput += data.toString();
+                }
+            }
+        };
+        const testDetailsOptions = {
+            listeners: {
+                stdout: (data) => {
+                    testDetailsOutput += data.toString();
+                }
+            }
+        };
+        await exec.exec('xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', path], testSummaryOptions);
+        await exec.exec('xcrun', ['xcresulttool', 'get', 'test-results', 'tests', '--path', path], testDetailsOptions);
+        try {
+            parsedTestResult = JSON.parse(testSummaryOutput);
+            parsedTestDetails = JSON.parse(testDetailsOutput);
+        }
+        catch (err) {
+            const error = err instanceof Error ? err.message : 'Unknown error during JSON parsing';
+            throw new Error(`Failed to parse test result JSON: ${error}`);
+        }
+        if (!utils.isTestResult(parsedTestResult) ||
+            !utils.isDetailedTestResult(parsedTestDetails)) {
+            throw new Error('Invalid test result format');
+        }
+        if (parsedTestResult.testFailures) {
+            parsedTestResult.testFailures =
+                utils.extractTestFailures(parsedTestDetails);
         }
     }
+    return {
+        buildResult: parsedBuildResult,
+        testResult: parsedTestResult
+    };
 }
 
 
@@ -27840,14 +27882,12 @@ var __webpack_exports__ = {};
 var exports = __webpack_exports__;
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-// src/index.ts
 const main_1 = __nccwpck_require__(1730);
 void (async () => {
     try {
         await (0, main_1.run)();
     }
     catch (error) {
-        // エラーがあれば標準エラー出力に書き込む
         if (error instanceof Error) {
             process.stderr.write(error.message + '\n');
             process.exit(1);

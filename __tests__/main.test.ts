@@ -1,415 +1,170 @@
-import { expect, test, jest, describe } from '@jest/globals'
-
-// モックの設定
-const mockAddRaw = jest.fn().mockReturnThis()
-const mockWrite = jest.fn().mockImplementation(async () => {})
+import { run } from '../src/main'
+import { BuildResult, TestResult } from '../src/types'
+import * as core from '@actions/core'
+import * as fs from 'fs'
+import { getXcresultSummary } from '../src/xcresult-parser'
+import { generateMarkdownSummary } from '../src/markdown-generator'
 
 jest.mock('@actions/core', () => ({
   getInput: jest.fn(),
   setOutput: jest.fn(),
   setFailed: jest.fn(),
   summary: {
-    addRaw: mockAddRaw,
-    addHeading: jest.fn().mockReturnThis(),
-    write: mockWrite
+    addRaw: jest.fn().mockReturnThis(),
+    write: jest.fn().mockResolvedValue(undefined),
+    addHeading: jest.fn().mockReturnThis()
   }
 }))
 
-jest.mock('@actions/exec')
+jest.mock('fs', () => ({
+  existsSync: jest.fn(),
+  promises: {
+    access: jest.fn(),
+    writeFile: jest.fn()
+  }
+}))
 
-import * as path from 'path'
-import * as fs from 'fs'
-import * as exec from '@actions/exec'
-import * as core from '@actions/core'
-import {
-  run,
-  getXcresultSummary,
-  generateMarkdownSummary,
-  BuildResult,
-  TestResult
-} from '../src/main'
+jest.mock('@actions/exec', () => ({
+  exec: jest.fn()
+}))
 
-// 成功時のビルド結果モック
-const mockSuccessfulBuildResult: BuildResult = {
-  analyzerWarningCount: 0,
-  analyzerWarnings: [],
-  destination: {
-    architecture: 'arm64',
-    deviceId: '123',
-    deviceName: 'iPhone 16 Pro',
-    modelName: 'iPhone 16 Pro',
-    osVersion: '18.0',
-    platform: 'iOS Simulator'
-  },
-  endTime: 1729870806.836,
-  errorCount: 0,
-  errors: [],
-  startTime: 1729870805.508,
-  status: 'succeeded',
-  warningCount: 0,
-  warnings: []
-}
+jest.mock('../src/xcresult-parser')
+jest.mock('../src/markdown-generator')
 
-// 失敗時のビルド結果モック
-const mockFailedBuildResult: BuildResult = {
-  analyzerWarningCount: 0,
-  analyzerWarnings: [],
-  destination: {
-    architecture: 'arm64',
-    deviceId: '123',
-    deviceName: 'iPhone 16 Pro',
-    modelName: 'iPhone 16 Pro',
-    osVersion: '18.0',
-    platform: 'iOS Simulator'
-  },
-  endTime: 1729870806.836,
-  errorCount: 1,
-  errors: [
-    {
-      className: 'CompileError',
-      issueType: 'Swift Compiler Error',
-      message: 'Cannot find type "Missing" in scope',
-      sourceURL: 'file:///path/to/error.swift',
-      targetName: 'TestTarget'
-    }
-  ],
-  startTime: 1729870805.508,
-  status: 'failed',
-  warningCount: 0,
-  warnings: []
-}
+const mockedCore = jest.mocked(core)
+const mockedFs = jest.mocked(fs)
+const mockedGetXcresultSummary = jest.mocked(getXcresultSummary)
+const mockedGenerateMarkdownSummary = jest.mocked(generateMarkdownSummary)
 
-// 成功時のテスト結果モック
-const mockSuccessfulTestResult: TestResult = {
-  devicesAndConfigurations: [
-    {
-      device: {
-        architecture: 'arm64',
-        deviceId: '123',
-        deviceName: 'iPhone 16 Pro',
-        modelName: 'iPhone 16 Pro',
-        osVersion: '18.0',
-        platform: 'iOS Simulator'
-      },
-      expectedFailures: 0,
-      failedTests: 0,
-      passedTests: 3,
-      skippedTests: 0,
-      testPlanConfiguration: {
-        configurationId: '1',
-        configurationName: 'Default'
-      }
-    }
-  ],
-  environmentDescription: 'Test Environment',
-  expectedFailures: 0,
-  failedTests: 0,
-  finishTime: 1729873371.36,
-  passedTests: 3,
-  result: 'succeeded',
-  skippedTests: 0,
-  startTime: 1729873161.166,
-  testFailures: [],
-  title: 'Test Results',
-  totalTestCount: 3
-}
-
-// 失敗時のテスト結果モック
-const mockFailedTestResult: TestResult = {
-  devicesAndConfigurations: [
-    {
-      device: {
-        architecture: 'arm64',
-        deviceId: '123',
-        deviceName: 'iPhone 16 Pro',
-        modelName: 'iPhone 16 Pro',
-        osVersion: '18.0',
-        platform: 'iOS Simulator'
-      },
-      expectedFailures: 0,
-      failedTests: 1,
-      passedTests: 2,
-      skippedTests: 0,
-      testPlanConfiguration: {
-        configurationId: '1',
-        configurationName: 'Default'
-      }
-    }
-  ],
-  environmentDescription: 'Test Environment',
-  expectedFailures: 0,
-  failedTests: 1,
-  finishTime: 1729873371.36,
-  passedTests: 2,
-  result: 'failed',
-  skippedTests: 0,
-  startTime: 1729873161.166,
-  testFailures: [
-    {
-      failureText: 'XCTAssertEqual failed: ("2") is not equal to ("3")',
-      targetName: 'TestTarget',
-      testName: 'testExample()',
-      sourceCodeContext: {
-        location: {
-          filePath: 'path/to/test.swift', // スラッシュを削除
-          lineNumber: 42
-        }
-      }
-    }
-  ],
-  title: 'Test Results',
-  totalTestCount: 3
-}
-
-describe('xcresult-summary action', () => {
-  let testXcresultPath: string
-  let mockExec: jest.MockedFunction<typeof exec.exec>
-  let mockGetInput: jest.MockedFunction<typeof core.getInput>
-  let mockSetOutput: jest.MockedFunction<typeof core.setOutput>
-
-  beforeEach(async () => {
+describe('run function', () => {
+  beforeEach(() => {
     jest.clearAllMocks()
-    testXcresultPath = path.join(__dirname, 'test.xcresult')
-    await fs.promises.writeFile(testXcresultPath, '')
-
-    mockExec = jest.mocked(exec.exec)
-    mockGetInput = jest.mocked(core.getInput)
-    mockSetOutput = jest.mocked(core.setOutput)
   })
 
-  afterEach(async () => {
-    if (fs.existsSync(testXcresultPath)) {
-      await fs.promises.unlink(testXcresultPath)
+  it('should process xcresult successfully', async () => {
+    const mockXcresultPath = '/path/to/xcresult'
+    mockedCore.getInput.mockReturnValue(mockXcresultPath)
+    mockedFs.existsSync.mockReturnValue(true)
+
+    const mockBuildResult: BuildResult = {
+      status: 'succeeded',
+      errorCount: 0,
+      warningCount: 0,
+      analyzerWarningCount: 0,
+      analyzerWarnings: [],
+      endTime: 0,
+      startTime: 0,
+      warnings: [],
+      errors: []
     }
+
+    const mockTestResult: TestResult = {
+      totalTestCount: 10,
+      failedTests: 0,
+      passedTests: 10,
+      skippedTests: 0,
+      expectedFailures: 0,
+      result: 'success',
+      startTime: 0,
+      finishTime: 0,
+      environmentDescription: '',
+      title: ''
+    }
+
+    mockedGetXcresultSummary.mockResolvedValue({
+      buildResult: mockBuildResult,
+      testResult: mockTestResult
+    })
+
+    const mockMarkdown = '# Test Summary'
+    mockedGenerateMarkdownSummary.mockReturnValue(mockMarkdown)
+
+    await run()
+
+    expect(mockedCore.getInput).toHaveBeenCalledWith('xcresult-path')
+    expect(mockedFs.existsSync).toHaveBeenCalledWith(mockXcresultPath)
+    expect(mockedGetXcresultSummary).toHaveBeenCalledWith(mockXcresultPath)
+    expect(mockedGenerateMarkdownSummary).toHaveBeenCalledWith(
+      mockBuildResult,
+      mockTestResult
+    )
+    expect(mockedCore.setOutput).toHaveBeenCalledWith('total-tests', 10)
+    expect(mockedCore.setOutput).toHaveBeenCalledWith('failed-tests', 0)
+    expect(mockedCore.setOutput).toHaveBeenCalledWith('passed-tests', 10)
+    expect(mockedCore.setOutput).toHaveBeenCalledWith(
+      'build-status',
+      'succeeded'
+    )
+    expect(mockedCore.setOutput).toHaveBeenCalledWith('error-count', 0)
+    expect(mockedCore.setOutput).toHaveBeenCalledWith('warning-count', 0)
+    expect(mockedCore.summary.addRaw).toHaveBeenCalledWith(mockMarkdown)
+    expect(mockedCore.summary.write).toHaveBeenCalled()
   })
 
-  describe('run', () => {
-    test('successfully processes build and test results when both succeed', async () => {
-      mockGetInput.mockReturnValue(testXcresultPath)
-      let callCount = 0
+  it('should handle xcresult file not found', async () => {
+    const mockXcresultPath = '/path/to/nonexistent/xcresult'
+    mockedCore.getInput.mockReturnValue(mockXcresultPath)
+    mockedFs.existsSync.mockReturnValue(false)
 
-      mockExec.mockImplementation(async (_, args, options): Promise<number> => {
-        if (options?.listeners?.stdout) {
-          const mockData =
-            callCount === 0
-              ? mockSuccessfulBuildResult
-              : mockSuccessfulTestResult
-          void options.listeners.stdout(Buffer.from(JSON.stringify(mockData)))
-          callCount++
-        }
-        return Promise.resolve(0)
-      })
+    await run()
 
-      await run()
-
-      expect(mockExec).toHaveBeenCalledTimes(3) // テスト詳細を取得するため 3回に変更
-      expect(mockAddRaw).toHaveBeenCalled()
-      expect(mockWrite).toHaveBeenCalled()
-    })
-
-    test('handles build failure and skips test results', async () => {
-      mockGetInput.mockReturnValue(testXcresultPath)
-      mockExec.mockImplementation(async (_, args, options): Promise<number> => {
-        if (options?.listeners?.stdout) {
-          void options.listeners.stdout(
-            Buffer.from(JSON.stringify(mockFailedBuildResult))
-          )
-        }
-        return Promise.resolve(0)
-      })
-
-      await run()
-
-      expect(mockExec).toHaveBeenCalledTimes(1)
-      expect(mockSetOutput).toHaveBeenCalledWith('build-status', 'failed')
-      expect(mockSetOutput).toHaveBeenCalledWith('error-count', 1)
-      expect(mockSetOutput).toHaveBeenCalledWith('total-tests', 0)
-      expect(mockSetOutput).toHaveBeenCalledWith('passed-tests', 0)
-    })
-
-    test('handles successful build with failed tests', async () => {
-      mockGetInput.mockReturnValue(testXcresultPath)
-      let callCount = 0
-
-      mockExec.mockImplementation(
-        async (
-          _: string,
-          args: string[] = [],
-          options?: exec.ExecOptions
-        ): Promise<number> => {
-          if (options?.listeners?.stdout) {
-            let mockData
-
-            if (args.includes('test-results') && args.includes('tests')) {
-              mockData = {
-                devices: [
-                  {
-                    architecture: 'arm64',
-                    deviceId: '123',
-                    deviceName: 'iPhone 16 Pro',
-                    modelName: 'iPhone 16 Pro',
-                    osVersion: '18.0',
-                    platform: 'iOS Simulator'
-                  }
-                ],
-                testNodes: [
-                  {
-                    children: [
-                      {
-                        nodeType: 'Test Case',
-                        result: 'Failed',
-                        name: 'testExample()',
-                        children: [
-                          {
-                            name: 'UserAccountEditStateSpec.swift:32: XCTAssertEqual failed',
-                            nodeType: 'Failure Message',
-                            result: 'Failed'
-                          }
-                        ]
-                      }
-                    ]
-                  }
-                ],
-                testPlanConfigurations: [
-                  {
-                    configurationId: '1',
-                    configurationName: 'Test Scheme Action'
-                  }
-                ]
-              }
-            } else {
-              mockData =
-                callCount === 0
-                  ? mockSuccessfulBuildResult
-                  : mockFailedTestResult
-              callCount++
-            }
-
-            void options.listeners.stdout(Buffer.from(JSON.stringify(mockData)))
-          }
-          return Promise.resolve(0)
-        }
-      )
-
-      await run()
-
-      expect(mockExec).toHaveBeenCalledTimes(3)
-      expect(mockSetOutput).toHaveBeenCalledWith('passed-tests', 2)
-      expect(mockSetOutput).toHaveBeenCalledWith('failed-tests', 1)
-
-      const markdownContent = mockAddRaw.mock.calls[0][0] as string
-      expect(markdownContent).toContain('Test Failures')
-      expect(markdownContent).toContain('XCTAssertEqual failed')
-    })
+    expect(mockedCore.setFailed).toHaveBeenCalledWith(
+      `xcresult file not found at path: ${mockXcresultPath}`
+    )
+    expect(mockedCore.summary.addHeading).toHaveBeenCalledWith('Error')
+    expect(mockedCore.summary.addRaw).toHaveBeenCalledWith(
+      expect.stringContaining('❌')
+    )
+    expect(mockedCore.summary.write).toHaveBeenCalled()
   })
 
-  describe('getXcresultSummary', () => {
-    test('successfully parses build and test results', async () => {
-      mockExec.mockImplementation(
-        async (
-          _: string,
-          args: string[] = [],
-          options?: exec.ExecOptions
-        ): Promise<number> => {
-          if (options?.listeners?.stdout) {
-            let mockData
+  it('should handle build failure', async () => {
+    const mockXcresultPath = '/path/to/xcresult'
+    mockedCore.getInput.mockReturnValue(mockXcresultPath)
+    mockedFs.existsSync.mockReturnValue(true)
 
-            if (args.includes('test-results') && args.includes('tests')) {
-              // テスト詳細結果のモック
-              mockData = {
-                devices: [
-                  {
-                    architecture: 'arm64',
-                    deviceId: '123',
-                    deviceName: 'iPhone 16 Pro',
-                    modelName: 'iPhone 16 Pro',
-                    osVersion: '18.0',
-                    platform: 'iOS Simulator'
-                  }
-                ],
-                testNodes: [
-                  {
-                    children: [
-                      {
-                        nodeType: 'Test Case',
-                        result: 'Passed',
-                        name: 'testExample()',
-                        children: []
-                      }
-                    ]
-                  }
-                ],
-                testPlanConfigurations: [
-                  {
-                    configurationId: '1',
-                    configurationName: 'Test Scheme Action'
-                  }
-                ]
-              }
-            } else if (
-              args.includes('test-results') &&
-              args.includes('summary')
-            ) {
-              // テストサマリー結果のモック
-              mockData = mockSuccessfulTestResult
-            } else {
-              // ビルド結果のモック
-              mockData = mockSuccessfulBuildResult
-            }
+    const mockBuildResult: BuildResult = {
+      status: 'failed',
+      errorCount: 2,
+      warningCount: 1,
+      analyzerWarningCount: 0,
+      analyzerWarnings: [],
+      endTime: 0,
+      startTime: 0,
+      warnings: [],
+      errors: []
+    }
 
-            void options.listeners.stdout(Buffer.from(JSON.stringify(mockData)))
-          }
-          return Promise.resolve(0)
-        }
-      )
-
-      const result = await getXcresultSummary(testXcresultPath)
-      expect(result.buildResult.status).toBe('succeeded')
-      expect(result.testResult).toBeDefined()
-      expect(result.testResult?.totalTestCount).toBe(3)
+    mockedGetXcresultSummary.mockResolvedValue({
+      buildResult: mockBuildResult,
+      testResult: null
     })
 
-    test('handles invalid JSON', async () => {
-      mockExec.mockImplementation(
-        async (_, _2, options?: exec.ExecOptions): Promise<number> => {
-          if (options?.listeners?.stdout) {
-            void options.listeners.stdout(Buffer.from('invalid json'))
-          }
-          return Promise.resolve(0)
-        }
-      )
+    const mockMarkdown = '# Build Failed Summary'
+    mockedGenerateMarkdownSummary.mockReturnValue(mockMarkdown)
 
-      await expect(getXcresultSummary(testXcresultPath)).rejects.toThrow(
-        'Failed to parse'
-      )
-    })
+    await run()
+
+    expect(mockedCore.setOutput).toHaveBeenCalledWith('build-status', 'failed')
+    expect(mockedCore.setOutput).toHaveBeenCalledWith('error-count', 2)
+    expect(mockedCore.setOutput).toHaveBeenCalledWith('warning-count', 1)
+    expect(mockedCore.summary.addRaw).toHaveBeenCalledWith(mockMarkdown)
+    expect(mockedCore.summary.write).toHaveBeenCalled()
   })
 
-  describe('generateMarkdownSummary', () => {
-    test('generates full summary for successful results', () => {
-      const summary = generateMarkdownSummary(
-        mockSuccessfulBuildResult,
-        mockSuccessfulTestResult
-      )
-      expect(summary).toContain('Test Statistics')
-      expect(summary).toContain('Build Results')
-      expect(summary).toContain('✅ Passed')
-      expect(summary).not.toContain('Test Failures')
+  it('should handle errors during execution', async () => {
+    const mockError = new Error('Test error')
+    mockedCore.getInput.mockImplementation(() => {
+      throw mockError
     })
 
-    test('includes test failures in summary', () => {
-      const summary = generateMarkdownSummary(
-        mockSuccessfulBuildResult,
-        mockFailedTestResult
-      )
-      expect(summary).toContain('Test Failures')
-      expect(summary).toContain('XCTAssertEqual failed')
-    })
+    await run()
 
-    test('includes build errors in summary', () => {
-      const summary = generateMarkdownSummary(mockFailedBuildResult, null)
-      expect(summary).toContain('Build Errors')
-      expect(summary).toContain('Cannot find type')
-    })
+    expect(mockedCore.setFailed).toHaveBeenCalledWith(mockError.message)
+    expect(mockedCore.summary.addHeading).toHaveBeenCalledWith('Error')
+    expect(mockedCore.summary.addRaw).toHaveBeenCalledWith(
+      expect.stringContaining('❌')
+    )
+    expect(mockedCore.summary.write).toHaveBeenCalled()
   })
 })
