@@ -46,7 +46,7 @@ describe('getXcresultSummary', () => {
       testPlanConfigurations: []
     }
 
-    mockedExec.exec.mockImplementation((cmd, args, options) => {
+    mockedExec.exec.mockImplementation(async (cmd, args, options) => {
       if (args?.includes('build-results')) {
         options?.listeners?.stdout?.(
           Buffer.from(JSON.stringify(mockBuildResult))
@@ -94,7 +94,7 @@ describe('getXcresultSummary', () => {
       analyzerWarnings: []
     }
 
-    mockedExec.exec.mockImplementation((cmd, args, options) => {
+    mockedExec.exec.mockImplementation(async (cmd, args, options) => {
       if (args?.includes('build-results')) {
         options?.listeners?.stdout?.(
           Buffer.from(JSON.stringify(mockBuildResult))
@@ -115,7 +115,7 @@ describe('getXcresultSummary', () => {
   })
 
   it('should handle invalid build result JSON', async () => {
-    mockedExec.exec.mockImplementation((cmd, args, options) => {
+    mockedExec.exec.mockImplementation(async (cmd, args, options) => {
       options?.listeners?.stdout?.(Buffer.from('invalid json'))
       return Promise.resolve(0)
     })
@@ -126,7 +126,7 @@ describe('getXcresultSummary', () => {
   })
 
   it('should handle invalid build result format', async () => {
-    mockedExec.exec.mockImplementation((cmd, args, options) => {
+    mockedExec.exec.mockImplementation(async (cmd, args, options) => {
       options?.listeners?.stdout?.(Buffer.from('{}'))
       return Promise.resolve(0)
     })
@@ -151,7 +151,7 @@ describe('getXcresultSummary', () => {
       analyzerWarnings: []
     }
 
-    mockedExec.exec.mockImplementation((cmd, args, options) => {
+    mockedExec.exec.mockImplementation(async (cmd, args, options) => {
       if (args?.includes('build-results')) {
         options?.listeners?.stdout?.(
           Buffer.from(JSON.stringify(mockBuildResult))
@@ -182,7 +182,7 @@ describe('getXcresultSummary', () => {
       analyzerWarnings: []
     }
 
-    mockedExec.exec.mockImplementation((cmd, args, options) => {
+    mockedExec.exec.mockImplementation(async (cmd, args, options) => {
       if (args?.includes('build-results')) {
         options?.listeners?.stdout?.(
           Buffer.from(JSON.stringify(mockBuildResult))

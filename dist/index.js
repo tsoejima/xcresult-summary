@@ -25733,8 +25733,8 @@ function generateMarkdownSummary(buildResult, testResult) {
         markdown += `**Duration**: ${((testResult.finishTime - testResult.startTime) / 60).toFixed(2)} minutes\n\n`;
         if (testResult.testFailures && testResult.testFailures.length > 0) {
             markdown += '### ❌ Test Failures\n\n';
-            markdown += '| Test | Location | Details |\n';
-            markdown += '|------|----------|----------|\n';
+            markdown += '| Location | Details |\n';
+            markdown += '|----------|----------|\n';
             testResult.testFailures.forEach(failure => {
                 const failureText = (failure.failureText || 'No failure details').replace(/\n/g, '<br>');
                 let location = 'Unknown location';
