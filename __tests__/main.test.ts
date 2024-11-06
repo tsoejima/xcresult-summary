@@ -5,6 +5,7 @@ import * as fs from 'fs'
 import { getXcresultSummary } from '../src/xcresult-parser'
 import { generateMarkdownSummary } from '../src/markdown-generator'
 
+/* eslint-disable */
 jest.mock('@actions/core', () => ({
   getInput: jest.fn(),
   setOutput: jest.fn(),
@@ -168,3 +169,4 @@ describe('run function', () => {
     expect(mockedCore.summary.write).toHaveBeenCalled()
   })
 })
+/* eslint-disable */
