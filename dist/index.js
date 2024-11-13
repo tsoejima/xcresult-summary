@@ -25733,10 +25733,11 @@ function generateMarkdownSummary(buildResult, testResult) {
         markdown += `**Duration**: ${((testResult.finishTime - testResult.startTime) / 60).toFixed(2)} minutes\n\n`;
         if (testResult.testFailures && testResult.testFailures.length > 0) {
             markdown += '### ❌ Test Failures\n\n';
-            markdown += '| Location | Details |\n';
-            markdown += '|----------|----------|\n';
+            markdown += '| Test Name | Location | Details |\n';
+            markdown += '|-----------|----------|---------|\n';
             testResult.testFailures.forEach(failure => {
                 const failureText = (failure.failureText || 'No failure details').replace(/\n/g, '<br>');
+                const testName = failure.testName || 'Unknown Test';
                 let location = 'Unknown location';
                 if (failure.sourceCodeContext?.location) {
                     const workspacePath = process.env.GITHUB_WORKSPACE || '';
@@ -25745,7 +25746,7 @@ function generateMarkdownSummary(buildResult, testResult) {
                     const relativePath = filePath.replace(workspacePath + '/', '');
                     location = lineNumber ? `${relativePath}:${lineNumber}` : relativePath;
                 }
-                markdown += `| \`${location}\` | ${failureText} |\n`;
+                markdown += `| \`${testName}\` | \`${location}\` | ${failureText} |\n`;
             });
             markdown += '\n';
         }

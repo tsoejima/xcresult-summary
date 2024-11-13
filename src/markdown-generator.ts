@@ -23,12 +23,14 @@ export function generateMarkdownSummary(
 
     if (testResult.testFailures && testResult.testFailures.length > 0) {
       markdown += '### ❌ Test Failures\n\n'
-      markdown += '| Location | Details |\n'
-      markdown += '|----------|----------|\n'
+      markdown += '| Test Name | Location | Details |\n'
+      markdown += '|-----------|----------|---------|\n'
       testResult.testFailures.forEach(failure => {
         const failureText = (
           failure.failureText || 'No failure details'
         ).replace(/\n/g, '<br>')
+
+        const testName = failure.testName || 'Unknown Test'
 
         let location = 'Unknown location'
         if (failure.sourceCodeContext?.location) {
@@ -39,7 +41,7 @@ export function generateMarkdownSummary(
           location = lineNumber ? `${relativePath}:${lineNumber}` : relativePath
         }
 
-        markdown += `| \`${location}\` | ${failureText} |\n`
+        markdown += `| \`${testName}\` | \`${location}\` | ${failureText} |\n`
       })
       markdown += '\n'
     }

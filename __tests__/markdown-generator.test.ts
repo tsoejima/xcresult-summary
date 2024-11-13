@@ -82,9 +82,11 @@ describe('generateMarkdownSummary', () => {
     expect(markdown).toContain('**Duration**: 3.00 minutes\n\n')
 
     expect(markdown).toContain('### ❌ Test Failures\n\n')
-    expect(markdown).toContain('| Location | Details |')
-    expect(markdown).toContain('|----------|----------|')
-    expect(markdown).toContain('| `path/to/test.swift:42` | Test failed |')
+    expect(markdown).toContain('| TestName | Location | Details |')
+    expect(markdown).toContain('|----------|----------|----------|')
+    expect(markdown).toContain(
+      '| `test` | `path/to/test.swift:42` | Test failed |'
+    )
 
     expect(markdown).toContain('### 📱 Device Results\n\n')
     expect(markdown).toContain(
